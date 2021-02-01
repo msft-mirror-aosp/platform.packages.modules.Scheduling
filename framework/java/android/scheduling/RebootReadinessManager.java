@@ -90,6 +90,7 @@ public final class RebootReadinessManager {
      */
     public static final String SUBSYSTEM_NAME_KEY = "SUBSYSTEM_NAME";
 
+
     /** {@hide} */
     public RebootReadinessManager(IRebootReadinessManager binder) {
         mService = binder;
@@ -319,4 +320,5 @@ public final class RebootReadinessManager {
             throw e.rethrowFromSystemServer();
         }
     }
+
 }
