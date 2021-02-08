@@ -74,6 +74,9 @@ public class RebootReadinessManagerTest {
 
     private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
     private static final String PROPERTY_ACTIVE_POLLING_INTERVAL_MS = "active_polling_interval_ms";
+    private static final String PROPERTY_DISABLE_INTERACTIVITY_CHECK =
+            "disable_interactivity_check";
+    private static final String PROPERTY_INTERACTIVITY_THRESHOLD_MS = "interactivity_threshold_ms";
 
     RebootReadinessManager mRebootReadinessManager =
             (RebootReadinessManager) InstrumentationRegistry.getContext().getSystemService(
@@ -87,6 +90,8 @@ public class RebootReadinessManagerTest {
                 PROPERTY_ACTIVE_POLLING_INTERVAL_MS, "1000", false);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_IDLE_POLLING_INTERVAL_MS, "1000", false);
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true", false);
     }
 
     @After
@@ -207,6 +212,22 @@ public class RebootReadinessManagerTest {
     public void testCancelPendingRebootWhenNotRegistered() {
         // Ensure that the process does not crash or throw an exception
         mRebootReadinessManager.cancelPendingReboot(InstrumentationRegistry.getContext());
+    }
+
+    @Test
+    public void testDisableInteractivityCheck() throws Exception {
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_INTERACTIVITY_THRESHOLD_MS, Long.toString(Long.MAX_VALUE), false);
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_DISABLE_INTERACTIVITY_CHECK, "false", false);
+        // Allow a small amount of time for DeviceConfig changes to be noted.
+        Thread.sleep(1000);
+        assertThat(isReadyToReboot()).isFalse();
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true", false);
+        // Allow a small amount of time for DeviceConfig changes to be noted.
+        Thread.sleep(1000);
+        assertThat(isReadyToReboot()).isTrue();
     }
 
     private boolean isReadyToReboot() throws Exception {
