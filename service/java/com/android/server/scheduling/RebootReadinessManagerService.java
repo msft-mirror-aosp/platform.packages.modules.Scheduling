@@ -17,6 +17,8 @@
 package com.android.server.scheduling;
 
 import android.Manifest;
+import android.app.ActivityManager;
+import android.app.ActivityManager.RunningServiceInfo;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -66,12 +68,15 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
 
     private final Context mContext;
 
+    private final ActivityManager mActivityManager;
+
     // DeviceConfig properties
     private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
     private static final String PROPERTY_ACTIVE_POLLING_INTERVAL_MS = "active_polling_interval_ms";
     private static final String PROPERTY_INTERACTIVITY_THRESHOLD_MS = "interactivity_threshold_ms";
     private static final String PROPERTY_DISABLE_INTERACTIVITY_CHECK =
             "disable_interactivity_check";
+    private static final String PROPERTY_DISABLE_APP_ACTIVITY_CHECK = "disable_app_activity_check";
 
 
     private static final long DEFAULT_POLLING_INTERVAL_WHILE_IDLE_MS = TimeUnit.MINUTES.toMillis(1);
@@ -93,6 +98,9 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
 
     @GuardedBy("mLock")
     private boolean mReadyToReboot = false;
+
+    @GuardedBy("mLock")
+    private boolean mDisableAppActivityCheck = false;
 
     // A mapping of uid to package name for uids which have called markRebootPending. Reboot
     // readiness state changed broadcasts will only be sent to the values in this map.
@@ -135,6 +143,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         if (powerManager != null) {
             noteInteractivityStateChanged(powerManager.isInteractive());
         }
+        mActivityManager = context.getSystemService(ActivityManager.class);
         mContext = context;
     }
 
@@ -234,7 +243,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     private void pollRebootReadinessState() {
         synchronized (mLock) {
             final boolean previousRebootReadiness = mReadyToReboot;
-            final boolean currentRebootReadiness = getRebootReadiness();
+            final boolean currentRebootReadiness = getRebootReadinessLocked();
             if (previousRebootReadiness != currentRebootReadiness) {
                 noteRebootReadinessStateChanged(currentRebootReadiness);
             }
@@ -245,9 +254,11 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         }
     }
 
-    private boolean getRebootReadiness() {
+    @GuardedBy("mLock")
+    private boolean getRebootReadinessLocked() {
         return (mDisableInteractivityCheck || checkDeviceInteractivity())
-                && checkSystemComponentsState();
+                && checkSystemComponentsState()
+                && (mDisableAppActivityCheck || checkBackgroundAppActivity());
     }
 
     private boolean checkSystemComponentsState() {
@@ -287,6 +298,25 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         synchronized (mLock) {
             return (now - mLastTimeNotInteractiveMs) > mInteractivityThresholdMs;
         }
+    }
+
+    /**
+     * Check for important app activity in the background by querying the running services on the
+     * device.
+     */
+    private boolean checkBackgroundAppActivity() {
+        if (mActivityManager != null) {
+            final List<RunningServiceInfo> serviceInfos =
+                    mActivityManager.getRunningServices(Integer.MAX_VALUE);
+            for (int i = 0; i < serviceInfos.size(); i++) {
+                RunningServiceInfo info = serviceInfos.get(i);
+                if (info.foreground) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     private void noteRebootReadinessStateChanged(boolean isReadyToReboot) {
@@ -331,6 +361,9 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             mDisableInteractivityCheck = DeviceConfig.getBoolean(
                     DeviceConfig.NAMESPACE_REBOOT_READINESS,
                     PROPERTY_DISABLE_INTERACTIVITY_CHECK, false);
+            mDisableAppActivityCheck = DeviceConfig.getBoolean(
+                    DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                    PROPERTY_DISABLE_APP_ACTIVITY_CHECK, false);
         }
     }
 
