@@ -1,4 +1,4 @@
-// Copyright (C) 2020 The Android Open Source Project
+// Copyright (C) 2021 The Android Open Source Project
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,23 +11,24 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-apex_key {
-    name: "com.android.scheduling.key",
-    public_key: "com.android.scheduling.avbpubkey",
-    private_key: "com.android.scheduling.pem",
+
+filegroup {
+    name: "service-scheduling-sources",
+    srcs: [
+        "java/**/*.java",
+    ],
 }
 
-android_app_certificate {
-    name: "com.android.scheduling.certificate",
-    certificate: "com.android.scheduling",
-}
-
-apex {
-    name: "com.android.scheduling",
-    updatable: true,
+java_library {
+    name: "service-scheduling",
+    srcs: [ ":service-scheduling-sources" ],
     min_sdk_version: "current",
-    java_libs: ["framework-scheduling", "service-scheduling"],
-    manifest: "manifest.json",
-    file_contexts: ":com.android.scheduling-file_contexts",
-    key: "com.android.scheduling.key",
+    defaults: ["framework-system-server-module-defaults" ],
+    sdk_version: "system_server_current",
+    libs: [
+        "framework-scheduling",
+    ],
+    apex_available: [
+        "com.android.scheduling",
+    ],
 }
