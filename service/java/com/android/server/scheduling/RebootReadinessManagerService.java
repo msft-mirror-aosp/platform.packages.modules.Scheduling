@@ -17,6 +17,7 @@
 package com.android.server.scheduling;
 
 import android.Manifest;
+import android.annotation.CurrentTimeMillisLong;
 import android.app.ActivityManager;
 import android.app.ActivityManager.RunningServiceInfo;
 import android.app.AlarmManager;
@@ -136,6 +137,21 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     @GuardedBy("mLock")
     private long mLastTimeNotInteractiveMs = Long.MAX_VALUE;
 
+
+    // Metadata to be stored for use in metrics.
+    @GuardedBy("mLock")
+    @CurrentTimeMillisLong
+    private long mPollingStartTimeMs;
+
+    @GuardedBy("mLock")
+    private int mTimesBlockedByInteractivity;
+
+    @GuardedBy("mLock")
+    private int mTimesBlockedBySubsystems;
+
+    @GuardedBy("mLock")
+    private int mTimesBlockedByAppActivity;
+
     @GuardedBy("mLock")
     private boolean mBlockedByTethering = false;
 
@@ -210,6 +226,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             // are already ongoing.
             if (mCallingUidToPackageMap.size() == 0) {
                 mCanceled = false;
+                resetMetrics();
                 mHandler.removeCallbacksAndMessages(null);
                 mHandler.post(this::pollRebootReadinessState);
             }
@@ -293,9 +310,22 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
 
     @GuardedBy("mLock")
     private boolean getRebootReadinessLocked() {
-        return (mDisableInteractivityCheck || checkDeviceInteractivity())
-                && checkSystemComponentsState()
-                && (mDisableAppActivityCheck || checkBackgroundAppActivity());
+        if (!(mDisableInteractivityCheck || checkDeviceInteractivity())) {
+            mTimesBlockedByInteractivity++;
+            return false;
+        }
+
+        if (!checkSystemComponentsState()) {
+            mTimesBlockedBySubsystems++;
+            return false;
+        }
+
+        if (!(mDisableAppActivityCheck || checkBackgroundAppActivity())) {
+            mTimesBlockedByAppActivity++;
+            return false;
+        }
+
+        return true;
     }
 
     @GuardedBy("mLock")
@@ -387,6 +417,12 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                     mContext.sendBroadcast(intent, Manifest.permission.REBOOT);
                 }
             }
+            if (mReadyToReboot) {
+                RebootReadinessLogger.writeAfterRebootReadyBroadcast(
+                        mPollingStartTimeMs, System.currentTimeMillis(),
+                        mTimesBlockedByInteractivity, mTimesBlockedBySubsystems,
+                        mTimesBlockedByAppActivity);
+            }
         }
     }
 
@@ -435,5 +471,13 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                 mLastTimeNotInteractiveMs = SystemClock.elapsedRealtime();
             }
         }
+    }
+
+    @GuardedBy("mLock")
+    private void resetMetrics() {
+        mPollingStartTimeMs = System.currentTimeMillis();
+        mTimesBlockedByInteractivity = 0;
+        mTimesBlockedBySubsystems = 0;
+        mTimesBlockedByAppActivity = 0;
     }
 }
