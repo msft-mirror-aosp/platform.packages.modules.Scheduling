@@ -18,6 +18,8 @@ package com.android.server.scheduling;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
+import android.os.Binder;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.RemoteCallback;
@@ -26,7 +28,9 @@ import android.os.RemoteException;
 import android.scheduling.IRebootReadinessCallback;
 import android.scheduling.IRebootReadinessManager;
 import android.scheduling.RebootReadinessManager;
+import android.util.ArraySet;
 import android.util.Log;
+import android.util.SparseArray;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
@@ -54,8 +58,22 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
 
     private final Context mContext;
 
+
+    // TODO(b/161353402): Make configurable via DeviceConfig
+    private static final long POLLING_FREQUENCY_WHILE_IDLE_MS = TimeUnit.SECONDS.toMillis(2);
+    private static final long POLLING_FREQUENCY_WHILE_ACTIVE_MS = TimeUnit.SECONDS.toMillis(2);
+
     @GuardedBy("mLock")
     private boolean mReadyToReboot = false;
+
+    // A mapping of uid to package name for uids which have called markRebootPending. Reboot
+    // readiness state changed broadcasts will only be sent to the values in this map.
+    @GuardedBy("mLock")
+    private final SparseArray<ArraySet<String>> mCallingUidToPackageMap = new SparseArray<>();
+
+    // When true, reboot readiness checks should not be performed.
+    @GuardedBy("mLock")
+    private boolean mCanceled = false;
 
     @VisibleForTesting
     RebootReadinessManagerService(Context context) {
@@ -81,10 +99,51 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     }
 
     @Override
-    public void markRebootPending() {
+    public void markRebootPending(String callingPackage) {
         mContext.enforceCallingPermission(Manifest.permission.REBOOT,
                 "Caller does not have REBOOT permission.");
-        mHandler.post(this::pollRebootReadinessState);
+        synchronized (mLock) {
+            // If there are existing clients waiting for a broadcast, reboot readiness checks
+            // are already ongoing.
+            if (mCallingUidToPackageMap.size() == 0) {
+                mCanceled = false;
+                mHandler.removeCallbacksAndMessages(null);
+                mHandler.post(this::pollRebootReadinessState);
+            }
+            ArraySet<String> packagesForUid =
+                    mCallingUidToPackageMap.get(Binder.getCallingUid(), new ArraySet<>());
+            packagesForUid.add(callingPackage);
+            mCallingUidToPackageMap.put(Binder.getCallingUid(), packagesForUid);
+        }
+    }
+
+    @Override
+    public void cancelPendingReboot(String callingPackage) {
+        mContext.enforceCallingPermission(Manifest.permission.REBOOT,
+                "Caller does not have REBOOT permission");
+        final int callingUid = Binder.getCallingUid();
+        synchronized (mLock) {
+            ArraySet<String> packagesForUid =
+                    mCallingUidToPackageMap.get(callingUid, new ArraySet<>());
+            if (packagesForUid.contains(callingPackage)) {
+                packagesForUid.remove(callingPackage);
+                if (packagesForUid.size() == 0) {
+                    // No remaining clients exist for this calling uid
+                    mCallingUidToPackageMap.remove(callingUid);
+                }
+
+                // Only cancel readiness checks if there are no more uids with packages
+                // waiting for broadcasts
+                if (mCallingUidToPackageMap.size() == 0) {
+                    mHandler.removeCallbacksAndMessages(null);
+                    mCanceled = true;
+                    mReadyToReboot = false;
+                }
+            } else {
+                Log.w(TAG, "Package " + callingPackage + " tried to cancel reboot readiness"
+                        + " checks but was not a client of this service.");
+            }
+        }
     }
 
     @Override
@@ -116,9 +175,20 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     }
 
     private void pollRebootReadinessState() {
-        boolean readyToReboot = getRebootReadiness();
         synchronized (mLock) {
-            mReadyToReboot = readyToReboot;
+            final boolean previousRebootReadiness = mReadyToReboot;
+            final boolean currentRebootReadiness = getRebootReadiness();
+            if (previousRebootReadiness != currentRebootReadiness) {
+                noteRebootReadinessStateChanged(currentRebootReadiness);
+            }
+            // While ready to reboot, it is assumed that a reboot is imminent. It may be useful to
+            // poll the device more frequency in this state, in case the device suddenly becomes
+            // active and the caller needs to be notified.
+            long nextCheckMillis = currentRebootReadiness ? POLLING_FREQUENCY_WHILE_IDLE_MS
+                    : POLLING_FREQUENCY_WHILE_ACTIVE_MS;
+            if (!mCanceled) {
+                mHandler.postDelayed(this::pollRebootReadinessState, nextCheckMillis);
+            }
         }
     }
 
@@ -156,5 +226,22 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         }
         mCallbacks.finishBroadcast();
         return blockingCallbacks.size() == 0;
+    }
+
+    private void noteRebootReadinessStateChanged(boolean isReadyToReboot) {
+        synchronized (mLock) {
+            mReadyToReboot = isReadyToReboot;
+            Intent intent = new Intent(Intent.ACTION_REBOOT_READY);
+            intent.putExtra(Intent.EXTRA_IS_READY_TO_REBOOT, isReadyToReboot);
+
+            // Send state change broadcast to any packages which have a pending update
+            for (int i = 0; i < mCallingUidToPackageMap.size(); i++) {
+                ArraySet<String> packageNames = mCallingUidToPackageMap.valueAt(i);
+                for (int j = 0; j < packageNames.size(); j++) {
+                    intent.setPackage(packageNames.valueAt(j));
+                    mContext.sendBroadcast(intent, Manifest.permission.REBOOT);
+                }
+            }
+        }
     }
 }

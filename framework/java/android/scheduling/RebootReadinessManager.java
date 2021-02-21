@@ -23,6 +23,7 @@ import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -41,15 +42,15 @@ import java.util.concurrent.Executor;
  * rebooted, to determine when the device is in an unused state and is ready to be rebooted. When
  * an updater has notified this service that there is a pending update that requires a reboot, this
  * service will periodically check several signals which contribute to the reboot readiness
- * decision. When the device has been deemed to be ready to reboot, a broadcast will be sent to
- * the updater to inform it that the device is not being used and may be safely rebooted.
+ * decision. When the device's reboot-readiness changes, a
+ * {@link Intent#ACTION_REBOOT_READY} broadcast will be sent. The associated extra
+ * {@link Intent#EXTRA_IS_READY_TO_REBOOT} will be {@code true} when the device is ready to reboot,
+ * and {@code false} when it is not ready to reboot.
  *
  * <p>Subsystems may register callbacks with this service. These callbacks allow subsystems to
  * inform the reboot readiness decision in the case that they are performing important work
  * that should not be interrupted by a reboot. An example of reboot-blocking work is tethering
  * to another device.
- *
- * TODO(b/161353402): Add link to broadcast once added.
  *
  * @hide
  */
@@ -218,14 +219,39 @@ public final class RebootReadinessManager {
 
     /**
      * Notifies the RebootReadinessManager that there is a pending update that requires a reboot to
-     * be applied. When the device is in a reboot-ready state, a broadcast will be sent.
+     * be applied.
      *
-     * TODO(b/161353402): Add API to allow caller to cancel reboot readiness checks.
+     * <p>When the device's reboot-readiness changes, a {@link Intent#ACTION_REBOOT_READY} broadcast
+     * will be sent. The associated extra {@link Intent#EXTRA_IS_READY_TO_REBOOT} will be
+     * {@code true} when the device is ready to reboot, and {@code false} when it is not ready to
+     * reboot.
+     *
+     * <p>If the same caller calls this method twice, the second call will be a no-op.
+     *
+     * TODO(b/161353402): Document and test multi-client cases.
+     *
+     * @param context the caller's context
      */
-    @RequiresPermission(android.Manifest.permission.REBOOT)
-    public void markRebootPending() {
+    @RequiresPermission(Manifest.permission.REBOOT)
+    public void markRebootPending(@NonNull Context context) {
         try {
-            mService.markRebootPending();
+            mService.markRebootPending(context.getPackageName());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Removes the caller from the set of packages that will receive reboot readiness broadcasts.
+     * If the caller is the only client that is receiving broadcasts, reboot readiness checks will
+     * be stopped.
+     *
+     * @param context the caller's context
+     */
+    @RequiresPermission(Manifest.permission.REBOOT)
+    public void cancelPendingReboot(@NonNull Context context) {
+        try {
+            mService.cancelPendingReboot(context.getPackageName());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
