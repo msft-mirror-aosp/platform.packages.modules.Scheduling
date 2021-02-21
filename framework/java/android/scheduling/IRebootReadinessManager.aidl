@@ -21,7 +21,8 @@ import android.scheduling.IRebootReadinessCallback;
 
 /** {@hide} */
 interface IRebootReadinessManager {
-    void markRebootPending();
+    void markRebootPending(in String callingPackage);
+    void cancelPendingReboot(in String callingPackage);
     boolean isReadyToReboot();
     void registerRebootReadinessCallback(in IRebootReadinessCallback callback);
     void unregisterRebootReadinessCallback(in IRebootReadinessCallback callback);
