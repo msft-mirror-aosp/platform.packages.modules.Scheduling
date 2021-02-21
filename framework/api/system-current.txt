@@ -2,8 +2,9 @@
 package android.scheduling {
 
   public final class RebootReadinessManager {
+    method @RequiresPermission(android.Manifest.permission.REBOOT) public void cancelPendingReboot(@NonNull android.content.Context);
     method @RequiresPermission(android.Manifest.permission.REBOOT) public boolean isReadyToReboot();
-    method @RequiresPermission(android.Manifest.permission.REBOOT) public void markRebootPending();
+    method @RequiresPermission(android.Manifest.permission.REBOOT) public void markRebootPending(@NonNull android.content.Context);
     method @RequiresPermission(android.Manifest.permission.SIGNAL_REBOOT_READINESS) public void registerRebootReadinessCallback(@NonNull java.util.concurrent.Executor, @NonNull android.scheduling.RebootReadinessManager.RebootReadinessCallback);
     method @RequiresPermission(android.Manifest.permission.SIGNAL_REBOOT_READINESS) public void registerRebootReadinessCallback(@NonNull android.scheduling.RebootReadinessManager.RebootReadinessCallback);
     method @RequiresPermission(android.Manifest.permission.SIGNAL_REBOOT_READINESS) public void unregisterRebootReadinessCallback(@NonNull android.scheduling.RebootReadinessManager.RebootReadinessCallback);
