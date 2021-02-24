@@ -78,6 +78,8 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
 
     private final AlarmManager mAlarmManager;
 
+    private final RebootReadinessLogger mRebootReadinessLogger;
+
     // For testing purposes only. Listeners whose names start with this prefix will be able to
     // inform the reboot signal, even if subsystem checks are disabled for testing.
     private static final String TEST_CALLBACK_PREFIX = "TESTCOMPONENT";
@@ -164,11 +166,19 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         }
     };
 
+    private final BroadcastReceiver mUserPresentReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            handleUserPresent();
+        }
+    };
+
     @VisibleForTesting
     RebootReadinessManagerService(Context context) {
         // TODO(b/161353402): Consolidate mHandler and mExecutor
         mHandler = new Handler(Looper.getMainLooper());
         mExecutor = new HandlerExecutor(mHandler);
+        mRebootReadinessLogger = new RebootReadinessLogger();
         updateConfigs();
         DeviceConfig.addOnPropertiesChangedListener(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 mExecutor, properties -> updateConfigs());
@@ -183,20 +193,25 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                 }
             }
         };
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(Intent.ACTION_SCREEN_ON);
-        filter.addAction(Intent.ACTION_SCREEN_OFF);
-        context.registerReceiver(interactivityChangedReceiver, filter);
+        IntentFilter interactivityFilter = new IntentFilter();
+        interactivityFilter.addAction(Intent.ACTION_SCREEN_ON);
+        interactivityFilter.addAction(Intent.ACTION_SCREEN_OFF);
+        context.registerReceiver(interactivityChangedReceiver, interactivityFilter);
         PowerManager powerManager = context.getSystemService(PowerManager.class);
         if (powerManager != null) {
             noteInteractivityStateChanged(powerManager.isInteractive());
         }
+
+        IntentFilter userPresentFilter = new IntentFilter();
+        userPresentFilter.addAction(Intent.ACTION_USER_PRESENT);
+        context.registerReceiver(mUserPresentReceiver, userPresentFilter);
         mActivityManager = context.getSystemService(ActivityManager.class);
         mAlarmManager = context.getSystemService(AlarmManager.class);
         TetheringManager mTetheringManager = context.getSystemService(TetheringManager.class);
         if (mTetheringManager != null) {
             mTetheringManager.registerTetheringEventCallback(mExecutor, mTetheringEventCallback);
         }
+        mHandler.post(mRebootReadinessLogger::readMetricsPostReboot);
         mContext = context;
     }
 
@@ -421,7 +436,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                 }
             }
             if (mReadyToReboot) {
-                RebootReadinessLogger.writeAfterRebootReadyBroadcast(
+                mRebootReadinessLogger.writeAfterRebootReadyBroadcast(
                         mPollingStartTimeMs, System.currentTimeMillis(),
                         mTimesBlockedByInteractivity, mTimesBlockedBySubsystems,
                         mTimesBlockedByAppActivity);
@@ -474,6 +489,11 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                 mLastTimeNotInteractiveMs = SystemClock.elapsedRealtime();
             }
         }
+    }
+
+    private void handleUserPresent() {
+        mContext.unregisterReceiver(mUserPresentReceiver);
+        mRebootReadinessLogger.writePostRebootMetrics();
     }
 
     @GuardedBy("mLock")
