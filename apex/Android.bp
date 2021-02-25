@@ -22,6 +22,11 @@ android_app_certificate {
     certificate: "com.android.scheduling",
 }
 
+filegroup {
+    name: "scheduling-jarjar-rules",
+    srcs: ["jarjar-rules.txt"],
+}
+
 apex {
     name: "com.android.scheduling",
     updatable: true,

@@ -21,10 +21,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Binder;
 import android.os.Handler;
+import android.os.HandlerExecutor;
 import android.os.Looper;
 import android.os.RemoteCallback;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
+import android.provider.DeviceConfig;
 import android.scheduling.IRebootReadinessCallback;
 import android.scheduling.IRebootReadinessManager;
 import android.scheduling.RebootReadinessManager;
@@ -39,6 +41,7 @@ import com.android.server.SystemService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -53,15 +56,25 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     private final RemoteCallbackList<IRebootReadinessCallback> mCallbacks =
             new RemoteCallbackList<IRebootReadinessCallback>();
     private final Handler mHandler;
+    private final Executor mExecutor;
 
     private final Object mLock = new Object();
 
     private final Context mContext;
 
+    // DeviceConfig properties
+    private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
+    private static final String PROPERTY_ACTIVE_POLLING_INTERVAL_MS = "active_polling_interval_ms";
 
-    // TODO(b/161353402): Make configurable via DeviceConfig
-    private static final long POLLING_FREQUENCY_WHILE_IDLE_MS = TimeUnit.SECONDS.toMillis(2);
-    private static final long POLLING_FREQUENCY_WHILE_ACTIVE_MS = TimeUnit.SECONDS.toMillis(2);
+    private static final long DEFAULT_POLLING_INTERVAL_WHILE_IDLE_MS = TimeUnit.MINUTES.toMillis(1);
+    private static final long DEFAULT_POLLING_INTERVAL_WHILE_ACTIVE_MS =
+            TimeUnit.MINUTES.toMillis(5);
+
+    @GuardedBy("mLock")
+    private long mActivePollingIntervalMs = DEFAULT_POLLING_INTERVAL_WHILE_ACTIVE_MS;
+
+    @GuardedBy("mLock")
+    private long mIdlePollingIntervalMs = DEFAULT_POLLING_INTERVAL_WHILE_IDLE_MS;
 
     @GuardedBy("mLock")
     private boolean mReadyToReboot = false;
@@ -77,7 +90,12 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
 
     @VisibleForTesting
     RebootReadinessManagerService(Context context) {
+        // TODO(b/161353402): Consolidate mHandler and mExecutor
         mHandler = new Handler(Looper.getMainLooper());
+        mExecutor = new HandlerExecutor(mHandler);
+        updateConfigs();
+        DeviceConfig.addOnPropertiesChangedListener(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                mExecutor, properties -> updateConfigs());
         mContext = context;
     }
 
@@ -181,13 +199,9 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             if (previousRebootReadiness != currentRebootReadiness) {
                 noteRebootReadinessStateChanged(currentRebootReadiness);
             }
-            // While ready to reboot, it is assumed that a reboot is imminent. It may be useful to
-            // poll the device more frequency in this state, in case the device suddenly becomes
-            // active and the caller needs to be notified.
-            long nextCheckMillis = currentRebootReadiness ? POLLING_FREQUENCY_WHILE_IDLE_MS
-                    : POLLING_FREQUENCY_WHILE_ACTIVE_MS;
             if (!mCanceled) {
-                mHandler.postDelayed(this::pollRebootReadinessState, nextCheckMillis);
+                mHandler.postDelayed(this::pollRebootReadinessState,
+                        getNextPollingIntervalMs(currentRebootReadiness));
             }
         }
     }
@@ -242,6 +256,28 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                     mContext.sendBroadcast(intent, Manifest.permission.REBOOT);
                 }
             }
+        }
+    }
+
+    private long getNextPollingIntervalMs(boolean isReadyToReady) {
+        // While ready to reboot, it is assumed that a reboot is imminent. It may be useful to poll
+        // the device more frequently in this state, in case the device suddenly becomes active and
+        // the caller needs to be notified.
+        synchronized (mLock) {
+            if (isReadyToReady) {
+                return mIdlePollingIntervalMs;
+            } else {
+                return mActivePollingIntervalMs;
+            }
+        }
+    }
+
+    private void updateConfigs() {
+        synchronized (mLock) {
+            mIdlePollingIntervalMs = DeviceConfig.getLong(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                    PROPERTY_IDLE_POLLING_INTERVAL_MS, DEFAULT_POLLING_INTERVAL_WHILE_IDLE_MS);
+            mActivePollingIntervalMs = DeviceConfig.getLong(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                    PROPERTY_ACTIVE_POLLING_INTERVAL_MS, DEFAULT_POLLING_INTERVAL_WHILE_ACTIVE_MS);
         }
     }
 }
