@@ -17,15 +17,19 @@
 package com.android.server.scheduling;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerExecutor;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.RemoteCallback;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
+import android.os.SystemClock;
 import android.provider.DeviceConfig;
 import android.scheduling.IRebootReadinessCallback;
 import android.scheduling.IRebootReadinessManager;
@@ -65,16 +69,27 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     // DeviceConfig properties
     private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
     private static final String PROPERTY_ACTIVE_POLLING_INTERVAL_MS = "active_polling_interval_ms";
+    private static final String PROPERTY_INTERACTIVITY_THRESHOLD_MS = "interactivity_threshold_ms";
+    private static final String PROPERTY_DISABLE_INTERACTIVITY_CHECK =
+            "disable_interactivity_check";
+
 
     private static final long DEFAULT_POLLING_INTERVAL_WHILE_IDLE_MS = TimeUnit.MINUTES.toMillis(1);
     private static final long DEFAULT_POLLING_INTERVAL_WHILE_ACTIVE_MS =
             TimeUnit.MINUTES.toMillis(5);
+    private static final long DEFAULT_INTERACTIVITY_THRESHOLD_MS = TimeUnit.MINUTES.toMillis(30);
 
     @GuardedBy("mLock")
     private long mActivePollingIntervalMs = DEFAULT_POLLING_INTERVAL_WHILE_ACTIVE_MS;
 
     @GuardedBy("mLock")
     private long mIdlePollingIntervalMs = DEFAULT_POLLING_INTERVAL_WHILE_IDLE_MS;
+
+    @GuardedBy("mLock")
+    private long mInteractivityThresholdMs = DEFAULT_INTERACTIVITY_THRESHOLD_MS;
+
+    @GuardedBy("mLock")
+    private boolean mDisableInteractivityCheck = false;
 
     @GuardedBy("mLock")
     private boolean mReadyToReboot = false;
@@ -88,6 +103,11 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     @GuardedBy("mLock")
     private boolean mCanceled = false;
 
+    // The last time the device stopped being in an interactive state, in relation to the time
+    // since the system booted. If the device is currently interactive, this will be MAX_VALUE.
+    @GuardedBy("mLock")
+    private long mLastTimeNotInteractiveMs = Long.MAX_VALUE;
+
     @VisibleForTesting
     RebootReadinessManagerService(Context context) {
         // TODO(b/161353402): Consolidate mHandler and mExecutor
@@ -96,6 +116,25 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         updateConfigs();
         DeviceConfig.addOnPropertiesChangedListener(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 mExecutor, properties -> updateConfigs());
+        BroadcastReceiver interactivityChangedReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                String action = intent.getAction();
+                if (action.equals(Intent.ACTION_SCREEN_ON)) {
+                    noteInteractivityStateChanged(true);
+                } else if (action.equals(Intent.ACTION_SCREEN_OFF)) {
+                    noteInteractivityStateChanged(false);
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_SCREEN_ON);
+        filter.addAction(Intent.ACTION_SCREEN_OFF);
+        context.registerReceiver(interactivityChangedReceiver, filter);
+        PowerManager powerManager = context.getSystemService(PowerManager.class);
+        if (powerManager != null) {
+            noteInteractivityStateChanged(powerManager.isInteractive());
+        }
         mContext = context;
     }
 
@@ -207,7 +246,8 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     }
 
     private boolean getRebootReadiness() {
-        return checkSystemComponentsState();
+        return (mDisableInteractivityCheck || checkDeviceInteractivity())
+                && checkSystemComponentsState();
     }
 
     private boolean checkSystemComponentsState() {
@@ -240,6 +280,13 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         }
         mCallbacks.finishBroadcast();
         return blockingCallbacks.size() == 0;
+    }
+
+    private boolean checkDeviceInteractivity() {
+        final long now = SystemClock.elapsedRealtime();
+        synchronized (mLock) {
+            return (now - mLastTimeNotInteractiveMs) > mInteractivityThresholdMs;
+        }
     }
 
     private void noteRebootReadinessStateChanged(boolean isReadyToReboot) {
@@ -278,6 +325,22 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                     PROPERTY_IDLE_POLLING_INTERVAL_MS, DEFAULT_POLLING_INTERVAL_WHILE_IDLE_MS);
             mActivePollingIntervalMs = DeviceConfig.getLong(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                     PROPERTY_ACTIVE_POLLING_INTERVAL_MS, DEFAULT_POLLING_INTERVAL_WHILE_ACTIVE_MS);
+            mInteractivityThresholdMs = DeviceConfig.getLong(
+                    DeviceConfig.NAMESPACE_REBOOT_READINESS, PROPERTY_INTERACTIVITY_THRESHOLD_MS,
+                    DEFAULT_INTERACTIVITY_THRESHOLD_MS);
+            mDisableInteractivityCheck = DeviceConfig.getBoolean(
+                    DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                    PROPERTY_DISABLE_INTERACTIVITY_CHECK, false);
+        }
+    }
+
+    private void noteInteractivityStateChanged(boolean isInteractive) {
+        synchronized (mLock) {
+            if (isInteractive) {
+                mLastTimeNotInteractiveMs = Long.MAX_VALUE;
+            } else {
+                mLastTimeNotInteractiveMs = SystemClock.elapsedRealtime();
+            }
         }
     }
 }
