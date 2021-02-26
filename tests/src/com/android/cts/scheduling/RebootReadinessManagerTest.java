@@ -27,6 +27,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.HandlerExecutor;
 import android.os.HandlerThread;
+import android.provider.DeviceConfig;
 import android.scheduling.RebootReadinessManager;
 import android.scheduling.RebootReadinessManager.RebootReadinessCallback;
 import android.scheduling.RebootReadinessManager.RebootReadinessStatus;
@@ -71,6 +72,12 @@ public class RebootReadinessManagerTest {
     private static final RebootReadinessCallback READY_CALLBACK = new RebootCallback(
             true, 0, "non-blocking component");
 
+    private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
+    private static final String PROPERTY_ACTIVE_POLLING_INTERVAL_MS = "active_polling_interval_ms";
+    private static final String PROPERTY_DISABLE_INTERACTIVITY_CHECK =
+            "disable_interactivity_check";
+    private static final String PROPERTY_INTERACTIVITY_THRESHOLD_MS = "interactivity_threshold_ms";
+
     RebootReadinessManager mRebootReadinessManager =
             (RebootReadinessManager) InstrumentationRegistry.getContext().getSystemService(
                     Context.REBOOT_READINESS_SERVICE);
@@ -79,6 +86,12 @@ public class RebootReadinessManagerTest {
     @Before
     public void setup() {
         adoptShellPermissions();
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_ACTIVE_POLLING_INTERVAL_MS, "1000", false);
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_IDLE_POLLING_INTERVAL_MS, "1000", false);
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true", false);
     }
 
     @After
@@ -86,8 +99,7 @@ public class RebootReadinessManagerTest {
         mRebootReadinessManager.unregisterRebootReadinessCallback(READY_CALLBACK);
         mRebootReadinessManager.unregisterRebootReadinessCallback(BLOCKING_CALLBACK);
         mRebootReadinessManager.cancelPendingReboot(InstrumentationRegistry.getContext());
-        InstrumentationRegistry
-                .getInstrumentation().getUiAutomation().dropShellPermissionIdentity();
+        dropShellPermissions();
     }
 
     @Test
@@ -151,8 +163,7 @@ public class RebootReadinessManagerTest {
 
     @Test
     public void testRebootPermissionCheck() {
-        InstrumentationRegistry
-                .getInstrumentation().getUiAutomation().dropShellPermissionIdentity();
+        dropShellPermissions();
         try {
             mRebootReadinessManager.markRebootPending(InstrumentationRegistry.getContext());
             fail("Expected to throw SecurityException");
@@ -164,8 +175,7 @@ public class RebootReadinessManagerTest {
 
     @Test
     public void testSignalRebootReadinessPermissionCheck() {
-        InstrumentationRegistry
-                .getInstrumentation().getUiAutomation().dropShellPermissionIdentity();
+        dropShellPermissions();
         try {
             mRebootReadinessManager.registerRebootReadinessCallback(READY_CALLBACK);
             fail("Expected to throw SecurityException");
@@ -204,6 +214,22 @@ public class RebootReadinessManagerTest {
         mRebootReadinessManager.cancelPendingReboot(InstrumentationRegistry.getContext());
     }
 
+    @Test
+    public void testDisableInteractivityCheck() throws Exception {
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_INTERACTIVITY_THRESHOLD_MS, Long.toString(Long.MAX_VALUE), false);
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_DISABLE_INTERACTIVITY_CHECK, "false", false);
+        // Allow a small amount of time for DeviceConfig changes to be noted.
+        Thread.sleep(1000);
+        assertThat(isReadyToReboot()).isFalse();
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true", false);
+        // Allow a small amount of time for DeviceConfig changes to be noted.
+        Thread.sleep(1000);
+        assertThat(isReadyToReboot()).isTrue();
+    }
+
     private boolean isReadyToReboot() throws Exception {
         mRebootReadinessManager.markRebootPending(InstrumentationRegistry.getContext());
         // Add a small timeout to allow the reboot readiness state to be noted.
@@ -214,6 +240,12 @@ public class RebootReadinessManagerTest {
 
     private void adoptShellPermissions() {
         InstrumentationRegistry.getInstrumentation().getUiAutomation().adoptShellPermissionIdentity(
-                Manifest.permission.REBOOT, Manifest.permission.SIGNAL_REBOOT_READINESS);
+                Manifest.permission.REBOOT, Manifest.permission.WRITE_DEVICE_CONFIG,
+                Manifest.permission.SIGNAL_REBOOT_READINESS);
+    }
+
+    private void dropShellPermissions() {
+        InstrumentationRegistry
+                .getInstrumentation().getUiAutomation().dropShellPermissionIdentity();
     }
 }
