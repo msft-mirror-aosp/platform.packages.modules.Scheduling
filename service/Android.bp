@@ -21,13 +21,19 @@ filegroup {
 
 java_library {
     name: "service-scheduling",
-    srcs: [ ":service-scheduling-sources" ],
+    srcs: [
+        ":service-scheduling-sources",
+        // TODO(b/161353402): Remove framework dependency when modules-utils expands
+        ":framework-cellbroadcast-shared-srcs"
+    ],
     min_sdk_version: "current",
     defaults: ["framework-system-server-module-defaults" ],
     sdk_version: "system_server_current",
     libs: [
         "framework-scheduling",
+        "unsupportedappusage",
     ],
+    jarjar_rules: ":scheduling-jarjar-rules",
     apex_available: [
         "com.android.scheduling",
     ],
