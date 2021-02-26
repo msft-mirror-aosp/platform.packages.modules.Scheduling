@@ -77,6 +77,7 @@ public class RebootReadinessManagerTest {
     private static final String PROPERTY_DISABLE_INTERACTIVITY_CHECK =
             "disable_interactivity_check";
     private static final String PROPERTY_INTERACTIVITY_THRESHOLD_MS = "interactivity_threshold_ms";
+    private static final String PROPERTY_DISABLE_APP_ACTIVITY_CHECK = "disable_app_activity_check";
 
     RebootReadinessManager mRebootReadinessManager =
             (RebootReadinessManager) InstrumentationRegistry.getContext().getSystemService(
@@ -92,6 +93,8 @@ public class RebootReadinessManagerTest {
                 PROPERTY_IDLE_POLLING_INTERVAL_MS, "1000", false);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true", false);
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_DISABLE_APP_ACTIVITY_CHECK, "true", false);
     }
 
     @After
