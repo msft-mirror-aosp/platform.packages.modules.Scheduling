@@ -29,13 +29,15 @@ import android.os.HandlerExecutor;
 import android.os.HandlerThread;
 import android.provider.DeviceConfig;
 import android.scheduling.RebootReadinessManager;
-import android.scheduling.RebootReadinessManager.RebootReadinessCallback;
+import android.scheduling.RebootReadinessManager.RebootReadinessListener;
 import android.scheduling.RebootReadinessManager.RebootReadinessStatus;
 
 import androidx.test.InstrumentationRegistry;
 
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -49,7 +51,7 @@ import java.util.concurrent.TimeUnit;
 @RunWith(JUnit4.class)
 public class RebootReadinessManagerTest {
 
-    private static class RebootCallback implements RebootReadinessCallback {
+    private static class RebootCallback implements RebootReadinessListener {
         private final boolean mIsReadyToReboot;
         private final long mEstimatedFinishTime;
         private final String mSubsystemName;
@@ -67,9 +69,9 @@ public class RebootReadinessManagerTest {
         }
     }
 
-    private static final RebootReadinessCallback BLOCKING_CALLBACK = new RebootCallback(
+    private static final RebootReadinessListener BLOCKING_CALLBACK = new RebootCallback(
             false, 0, "blocking component");
-    private static final RebootReadinessCallback READY_CALLBACK = new RebootCallback(
+    private static final RebootReadinessListener READY_CALLBACK = new RebootCallback(
             true, 0, "non-blocking component");
 
     private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
@@ -83,6 +85,14 @@ public class RebootReadinessManagerTest {
             (RebootReadinessManager) InstrumentationRegistry.getContext().getSystemService(
                     Context.REBOOT_READINESS_SERVICE);
 
+    private static final HandlerThread sThread = new HandlerThread("RebootReadinessManagerTest");
+    private static HandlerExecutor sHandlerExecutor;
+
+    @BeforeClass
+    public static void setupClass() {
+        sThread.start();
+        sHandlerExecutor = new HandlerExecutor(sThread.getThreadHandler());
+    }
 
     @Before
     public void setup() {
@@ -99,27 +109,32 @@ public class RebootReadinessManagerTest {
 
     @After
     public void tearDown() {
-        mRebootReadinessManager.unregisterRebootReadinessCallback(READY_CALLBACK);
-        mRebootReadinessManager.unregisterRebootReadinessCallback(BLOCKING_CALLBACK);
+        mRebootReadinessManager.removeRebootReadinessListener(READY_CALLBACK);
+        mRebootReadinessManager.removeRebootReadinessListener(BLOCKING_CALLBACK);
         mRebootReadinessManager.cancelPendingReboot(InstrumentationRegistry.getContext());
         dropShellPermissions();
+    }
+
+    @AfterClass
+    public static void teardownClass() {
+        sThread.quitSafely();
     }
 
     @Test
     public void testRegisterAndUnregisterCallback() throws Exception {
         assertThat(isReadyToReboot()).isTrue();
-        mRebootReadinessManager.registerRebootReadinessCallback(BLOCKING_CALLBACK);
+        mRebootReadinessManager.addRebootReadinessListener(sHandlerExecutor, BLOCKING_CALLBACK);
         // Sleep for the time period between reboot readiness checks
         Thread.sleep(2000);
         assertThat(isReadyToReboot()).isFalse();
-        mRebootReadinessManager.unregisterRebootReadinessCallback(BLOCKING_CALLBACK);
+        mRebootReadinessManager.removeRebootReadinessListener(BLOCKING_CALLBACK);
         Thread.sleep(2000);
         assertThat(isReadyToReboot()).isTrue();
     }
 
     @Test
     public void testCallbackReadyToReboot() throws Exception {
-        mRebootReadinessManager.registerRebootReadinessCallback(READY_CALLBACK);
+        mRebootReadinessManager.addRebootReadinessListener(sHandlerExecutor, READY_CALLBACK);
         CountDownLatch latch = new CountDownLatch(2);
         final BroadcastReceiver receiver = new BroadcastReceiver() {
             boolean mExpectedExtra = true;
@@ -133,9 +148,9 @@ public class RebootReadinessManagerTest {
         };
         InstrumentationRegistry.getContext().registerReceiver(receiver,
                 new IntentFilter(Intent.ACTION_REBOOT_READY));
-        mRebootReadinessManager.registerRebootReadinessCallback(READY_CALLBACK);
+        mRebootReadinessManager.addRebootReadinessListener(sHandlerExecutor, READY_CALLBACK);
         assertThat(isReadyToReboot()).isTrue();
-        mRebootReadinessManager.registerRebootReadinessCallback(BLOCKING_CALLBACK);
+        mRebootReadinessManager.addRebootReadinessListener(sHandlerExecutor, BLOCKING_CALLBACK);
         assertThat(latch.await(1, TimeUnit.MINUTES)).isTrue();
         InstrumentationRegistry.getContext().unregisterReceiver(receiver);
     }
@@ -143,25 +158,11 @@ public class RebootReadinessManagerTest {
     @Test
     public void testCallbackNotReadyToReboot() throws Exception {
         assertThat(isReadyToReboot()).isTrue();
-        mRebootReadinessManager.registerRebootReadinessCallback(READY_CALLBACK);
-        mRebootReadinessManager.registerRebootReadinessCallback(BLOCKING_CALLBACK);
+        mRebootReadinessManager.addRebootReadinessListener(sHandlerExecutor, READY_CALLBACK);
+        mRebootReadinessManager.addRebootReadinessListener(sHandlerExecutor, BLOCKING_CALLBACK);
         // Sleep for the time period between reboot readiness checks
         Thread.sleep(2000);
         assertThat(isReadyToReboot()).isFalse();
-    }
-
-    @Test
-    public void testRegisterCallbackWithExecutor() throws Exception {
-        assertThat(isReadyToReboot()).isTrue();
-        HandlerThread thread = new HandlerThread("testRegisterCallback");
-        thread.start();
-        mRebootReadinessManager.registerRebootReadinessCallback(
-                new HandlerExecutor(thread.getThreadHandler()), BLOCKING_CALLBACK);
-        assertThat(isReadyToReboot()).isFalse();
-        mRebootReadinessManager.unregisterRebootReadinessCallback(BLOCKING_CALLBACK);
-        // Sleep for the time period between reboot readiness checks
-        Thread.sleep(2000);
-        assertThat(isReadyToReboot()).isTrue();
     }
 
     @Test
@@ -180,7 +181,7 @@ public class RebootReadinessManagerTest {
     public void testSignalRebootReadinessPermissionCheck() {
         dropShellPermissions();
         try {
-            mRebootReadinessManager.registerRebootReadinessCallback(READY_CALLBACK);
+            mRebootReadinessManager.addRebootReadinessListener(sHandlerExecutor, READY_CALLBACK);
             fail("Expected to throw SecurityException");
         } catch (SecurityException expected) {
         } finally {
@@ -191,7 +192,7 @@ public class RebootReadinessManagerTest {
 
     @Test
     public void testCancelPendingReboot() throws Exception {
-        mRebootReadinessManager.registerRebootReadinessCallback(BLOCKING_CALLBACK);
+        mRebootReadinessManager.addRebootReadinessListener(sHandlerExecutor, BLOCKING_CALLBACK);
         mRebootReadinessManager.markRebootPending(InstrumentationRegistry.getContext());
         mRebootReadinessManager.cancelPendingReboot(InstrumentationRegistry.getContext());
         CountDownLatch latch = new CountDownLatch(1);
@@ -203,7 +204,7 @@ public class RebootReadinessManagerTest {
         };
         InstrumentationRegistry.getContext().registerReceiver(receiver,
                 new IntentFilter(Intent.ACTION_REBOOT_READY));
-        mRebootReadinessManager.unregisterRebootReadinessCallback(BLOCKING_CALLBACK);
+        mRebootReadinessManager.removeRebootReadinessListener(BLOCKING_CALLBACK);
 
         // Ensure that no broadcast is received when reboot readiness checks are canceled.
         latch.await(10, TimeUnit.SECONDS);
