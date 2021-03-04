@@ -25,8 +25,6 @@ import android.annotation.SystemService;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.os.RemoteCallback;
 import android.os.RemoteException;
 import android.text.TextUtils;
@@ -60,13 +58,13 @@ public final class RebootReadinessManager {
     private static final String TAG = "RebootReadinessManager";
 
     private final IRebootReadinessManager mService;
-    private final ArrayMap<RebootReadinessCallback, RebootReadinessCallbackProxy> mProxyList =
+    private final ArrayMap<RebootReadinessListener, RebootReadinessCallbackProxy> mProxyList =
             new ArrayMap<>();
 
     /**
      * Key used to communicate between {@link RebootReadinessManager} and the system server,
      * indicating the reboot readiness of a component that has registered a
-     * {@link RebootReadinessCallback}. The associated value is a boolean.
+     * {@link RebootReadinessListener}. The associated value is a boolean.
      *
      * @hide
      */
@@ -75,7 +73,7 @@ public final class RebootReadinessManager {
     /**
      * Key used to communicate between {@link RebootReadinessManager} and the system server,
      * indicating the estimated finish time of the reboot-blocking work of a component that has
-     * registered a {@link RebootReadinessCallback}. The associated value is a long.
+     * registered a {@link RebootReadinessListener}. The associated value is a long.
      *
      * @hide
      */
@@ -84,7 +82,7 @@ public final class RebootReadinessManager {
     /**
      * Key used to communicate between {@link RebootReadinessManager} and the system server,
      * indicating the identifier of a component that has registered a
-     * {@link RebootReadinessCallback}. The associated value is a String.
+     * {@link RebootReadinessListener}. The associated value is a String.
      *
      * @hide
      */
@@ -101,7 +99,7 @@ public final class RebootReadinessManager {
      * {@link RebootReadinessManager}. This callback may be called multiple times when
      * the device's reboot readiness state is being periodically polled.
      */
-    public interface RebootReadinessCallback {
+    public interface RebootReadinessListener {
 
         /**
          * Passes a {@link RebootReadinessStatus} to the {@link RebootReadinessManager} to
@@ -114,11 +112,14 @@ public final class RebootReadinessManager {
 
 
     /**
-     * A response returned from a {@link RebootReadinessCallback}, indicating if the subsystem
+     * A response returned from a {@link RebootReadinessListener}, indicating if the subsystem
      * is performing work that should block the reboot. If reboot-blocking work is being performed,
      * this response may indicate the estimated completion time of this work, if that value is
      * known.
+     *
+     * @hide
      */
+    @SystemApi
     public static final class RebootReadinessStatus {
         private final boolean mIsReadyToReboot;
         private final long mEstimatedFinishTime;
@@ -126,7 +127,7 @@ public final class RebootReadinessManager {
 
 
         /**
-         * Constructs a response which will be returned whenever a {@link RebootReadinessCallback}
+         * Constructs a response which will be returned whenever a {@link RebootReadinessListener}
          * is polled. The information in this response will be used as a signal to inform the
          * overall reboot readiness signal.
          *
@@ -136,7 +137,7 @@ public final class RebootReadinessManager {
          * when the estimated finish time is reached.
          *
          * A non-empty identifier which reflects the name of the entity that registered the
-         * {@link RebootReadinessCallback} must be supplied. This identifier will be used for
+         * {@link RebootReadinessListener} must be supplied. This identifier will be used for
          * logging purposes.
          *
          * @param isReadyToReboot whether or not this subsystem is ready to reboot.
@@ -145,7 +146,7 @@ public final class RebootReadinessManager {
          *                            if the finish time is unknown. This value will be ignored
          *                            if the subsystem is ready to reboot.
          * @param logSubsystemName the name of the subsystem which registered the
-         *                         {@link RebootReadinessCallback}.
+         *                         {@link RebootReadinessListener}.
          */
         public RebootReadinessStatus(boolean isReadyToReboot,
                 @CurrentTimeMillisLong long estimatedFinishTime,
@@ -171,7 +172,7 @@ public final class RebootReadinessManager {
 
         /**
          * Returns the time when the reboot-blocking work is estimated to finish. If this value is
-         * greater than 0, the associated {@link RebootReadinessCallback} may not be called again
+         * greater than 0, the associated {@link RebootReadinessListener} may not be called again
          * until this time, since this subsystem is assumed to be performing important work
          * until that time. This value is ignored if this subsystem is ready to reboot.
          *
@@ -196,11 +197,11 @@ public final class RebootReadinessManager {
         }
     }
 
-    private static class RebootReadinessCallbackProxy extends IRebootReadinessCallback.Stub {
-        private final RebootReadinessCallback mCallback;
+    private static class RebootReadinessCallbackProxy extends IRebootReadinessListener.Stub {
+        private final RebootReadinessListener mCallback;
         private final Executor mExecutor;
 
-        RebootReadinessCallbackProxy(RebootReadinessCallback callback, Executor executor) {
+        RebootReadinessCallbackProxy(RebootReadinessListener callback, Executor executor) {
             mCallback = callback;
             mExecutor = executor;
         }
@@ -273,18 +274,18 @@ public final class RebootReadinessManager {
     }
 
     /**
-     * Registers a {@link RebootReadinessCallback} with the RebootReadinessManager.
+     * Registers a {@link RebootReadinessListener} with the RebootReadinessManager.
      *
      * @param executor the executor that the callback will be executed on
      * @param callback the callback to be registered
      */
     @RequiresPermission(Manifest.permission.SIGNAL_REBOOT_READINESS)
-    public void registerRebootReadinessCallback(@NonNull @CallbackExecutor Executor executor,
-            @NonNull RebootReadinessCallback callback) {
+    public void addRebootReadinessListener(@NonNull @CallbackExecutor Executor executor,
+            @NonNull RebootReadinessListener callback) {
         try {
             RebootReadinessCallbackProxy proxy =
                     new RebootReadinessCallbackProxy(callback, executor);
-            mService.registerRebootReadinessCallback(proxy);
+            mService.addRebootReadinessListener(proxy);
             mProxyList.put(callback, proxy);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -292,28 +293,16 @@ public final class RebootReadinessManager {
     }
 
     /**
-     * Registers a {@link RebootReadinessCallback} with the RebootReadinessManager. The callback
-     * will be executed on the main thread.
-     *
-     * @param callback the callback to be registered
-     */
-    @RequiresPermission(Manifest.permission.SIGNAL_REBOOT_READINESS)
-    public void registerRebootReadinessCallback(@NonNull RebootReadinessCallback callback) {
-        Executor executor = new Handler(Looper.getMainLooper())::post;
-        registerRebootReadinessCallback(executor, callback);
-    }
-
-    /**
-     * Unregisters a {@link RebootReadinessCallback} from the RebootReadinessManager.
+     * Unregisters a {@link RebootReadinessListener} from the RebootReadinessManager.
      *
      * @param callback the callback to unregister
      */
     @RequiresPermission(Manifest.permission.SIGNAL_REBOOT_READINESS)
-    public void unregisterRebootReadinessCallback(@NonNull RebootReadinessCallback callback) {
+    public void removeRebootReadinessListener(@NonNull RebootReadinessListener callback) {
         try {
             RebootReadinessCallbackProxy proxy = mProxyList.get(callback);
             if (proxy != null) {
-                mService.unregisterRebootReadinessCallback(proxy);
+                mService.removeRebootReadinessListener(proxy);
                 mProxyList.remove(callback);
             }
         } catch (RemoteException e) {
