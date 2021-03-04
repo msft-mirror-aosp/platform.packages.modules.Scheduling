@@ -69,10 +69,12 @@ public class RebootReadinessManagerTest {
         }
     }
 
+    private static final String TEST_CALLBACK_PREFIX = "TESTCOMPONENT";
+
     private static final RebootReadinessListener BLOCKING_CALLBACK = new RebootCallback(
-            false, 0, "blocking component");
+            false, 0, TEST_CALLBACK_PREFIX + ": blocking component");
     private static final RebootReadinessListener READY_CALLBACK = new RebootCallback(
-            true, 0, "non-blocking component");
+            true, 0, TEST_CALLBACK_PREFIX + ": non-blocking component");
 
     private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
     private static final String PROPERTY_ACTIVE_POLLING_INTERVAL_MS = "active_polling_interval_ms";
@@ -80,6 +82,7 @@ public class RebootReadinessManagerTest {
             "disable_interactivity_check";
     private static final String PROPERTY_INTERACTIVITY_THRESHOLD_MS = "interactivity_threshold_ms";
     private static final String PROPERTY_DISABLE_APP_ACTIVITY_CHECK = "disable_app_activity_check";
+    private static final String PROPERTY_DISABLE_SUBSYSTEMS_CHECK = "disable_subsystems_check";
 
     RebootReadinessManager mRebootReadinessManager =
             (RebootReadinessManager) InstrumentationRegistry.getContext().getSystemService(
@@ -105,6 +108,8 @@ public class RebootReadinessManagerTest {
                 PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true", false);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_DISABLE_APP_ACTIVITY_CHECK, "true", false);
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_DISABLE_SUBSYSTEMS_CHECK, "true", false);
     }
 
     @After
