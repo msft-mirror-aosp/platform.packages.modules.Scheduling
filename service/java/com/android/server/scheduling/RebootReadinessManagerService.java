@@ -19,10 +19,14 @@ package com.android.server.scheduling;
 import android.Manifest;
 import android.app.ActivityManager;
 import android.app.ActivityManager.RunningServiceInfo;
+import android.app.AlarmManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.TetheredClient;
+import android.net.TetheringManager;
+import android.net.TetheringManager.TetheringEventCallback;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerExecutor;
@@ -45,6 +49,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.SystemService;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
@@ -70,6 +75,12 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
 
     private final ActivityManager mActivityManager;
 
+    private final AlarmManager mAlarmManager;
+
+    // For testing purposes only. Listeners whose names start with this prefix will be able to
+    // inform the reboot signal, even if subsystem checks are disabled for testing.
+    private static final String TEST_CALLBACK_PREFIX = "TESTCOMPONENT";
+
     // DeviceConfig properties
     private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
     private static final String PROPERTY_ACTIVE_POLLING_INTERVAL_MS = "active_polling_interval_ms";
@@ -77,12 +88,15 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     private static final String PROPERTY_DISABLE_INTERACTIVITY_CHECK =
             "disable_interactivity_check";
     private static final String PROPERTY_DISABLE_APP_ACTIVITY_CHECK = "disable_app_activity_check";
+    private static final String PROPERTY_DISABLE_SUBSYSTEMS_CHECK = "disable_subsystems_check";
+    private static final String PROPERTY_ALARM_CLOCK_THRESHOLD_MS = "alarm_clock_threshold_ms";
 
 
     private static final long DEFAULT_POLLING_INTERVAL_WHILE_IDLE_MS = TimeUnit.MINUTES.toMillis(1);
     private static final long DEFAULT_POLLING_INTERVAL_WHILE_ACTIVE_MS =
             TimeUnit.MINUTES.toMillis(5);
     private static final long DEFAULT_INTERACTIVITY_THRESHOLD_MS = TimeUnit.MINUTES.toMillis(30);
+    private static final long DEFAULT_ALARM_CLOCK_THRESHOLD_MS = TimeUnit.MINUTES.toMillis(10);
 
     @GuardedBy("mLock")
     private long mActivePollingIntervalMs = DEFAULT_POLLING_INTERVAL_WHILE_ACTIVE_MS;
@@ -102,6 +116,12 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     @GuardedBy("mLock")
     private boolean mDisableAppActivityCheck = false;
 
+    @GuardedBy("mLock")
+    private boolean mDisableSubsystemsCheck = false;
+
+    @GuardedBy("mLock")
+    private long mAlarmClockThresholdMs = DEFAULT_ALARM_CLOCK_THRESHOLD_MS;
+
     // A mapping of uid to package name for uids which have called markRebootPending. Reboot
     // readiness state changed broadcasts will only be sent to the values in this map.
     @GuardedBy("mLock")
@@ -115,6 +135,18 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     // since the system booted. If the device is currently interactive, this will be MAX_VALUE.
     @GuardedBy("mLock")
     private long mLastTimeNotInteractiveMs = Long.MAX_VALUE;
+
+    @GuardedBy("mLock")
+    private boolean mBlockedByTethering = false;
+
+    private final TetheringEventCallback mTetheringEventCallback = new TetheringEventCallback() {
+        @Override
+        public void onClientsChanged(Collection<TetheredClient> clients) {
+            synchronized (mLock) {
+                mBlockedByTethering = clients.size() > 0;
+            }
+        }
+    };
 
     @VisibleForTesting
     RebootReadinessManagerService(Context context) {
@@ -144,6 +176,11 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             noteInteractivityStateChanged(powerManager.isInteractive());
         }
         mActivityManager = context.getSystemService(ActivityManager.class);
+        mAlarmManager = context.getSystemService(AlarmManager.class);
+        TetheringManager mTetheringManager = context.getSystemService(TetheringManager.class);
+        if (mTetheringManager != null) {
+            mTetheringManager.registerTetheringEventCallback(mExecutor, mTetheringEventCallback);
+        }
         mContext = context;
     }
 
@@ -261,7 +298,21 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                 && (mDisableAppActivityCheck || checkBackgroundAppActivity());
     }
 
+    @GuardedBy("mLock")
     private boolean checkSystemComponentsState() {
+        if (!mDisableSubsystemsCheck) {
+            if (mBlockedByTethering) {
+                return false;
+            }
+
+            AlarmManager.AlarmClockInfo alarmClockInfo = mAlarmManager.getNextAlarmClock();
+            final long now = System.currentTimeMillis();
+            if (alarmClockInfo != null
+                    && (alarmClockInfo.getTriggerTime() - now) < mAlarmClockThresholdMs) {
+                return false;
+            }
+        }
+
         final List<IRebootReadinessListener> blockingCallbacks = new ArrayList<>();
         int i = mCallbacks.beginBroadcast();
         CountDownLatch latch = new CountDownLatch(i);
@@ -273,7 +324,10 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                         result -> {
                             boolean isReadyToReboot = result.getBoolean(
                                     RebootReadinessManager.IS_REBOOT_READY_KEY);
-                            if (!isReadyToReboot) {
+                            String name = result.getString(
+                                    RebootReadinessManager.SUBSYSTEM_NAME_KEY);
+                            if (!isReadyToReboot && (!mDisableSubsystemsCheck
+                                    || name.startsWith(TEST_CALLBACK_PREFIX))) {
                                 blockingCallbacks.add(callback);
                             }
                             latch.countDown();
@@ -364,6 +418,12 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             mDisableAppActivityCheck = DeviceConfig.getBoolean(
                     DeviceConfig.NAMESPACE_REBOOT_READINESS,
                     PROPERTY_DISABLE_APP_ACTIVITY_CHECK, false);
+            mDisableSubsystemsCheck = DeviceConfig.getBoolean(
+                    DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                    PROPERTY_DISABLE_SUBSYSTEMS_CHECK, false);
+            mAlarmClockThresholdMs = DeviceConfig.getLong(
+                    DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                    PROPERTY_ALARM_CLOCK_THRESHOLD_MS, DEFAULT_ALARM_CLOCK_THRESHOLD_MS);
         }
     }
 
