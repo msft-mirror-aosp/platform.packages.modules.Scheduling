@@ -35,6 +35,7 @@ java_library {
     sdk_version: "system_server_current",
     libs: [
         "framework-scheduling",
+        "framework-tethering.stubs.module_lib",
         "unsupportedappusage",
     ],
     jarjar_rules: ":scheduling-jarjar-rules",
