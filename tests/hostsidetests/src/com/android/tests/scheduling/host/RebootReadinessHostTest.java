@@ -85,7 +85,7 @@ public class RebootReadinessHostTest extends BaseHostJUnit4Test {
     }
 
     private UnattendedRebootMetricEvent parseUnattendedRebootEvent(String line) {
-        String[] metricFields = line.split("UnattendedRebootEvent")[1].trim().split(" ");
+        String[] metricFields = line.split("UnattendedRebootOccurred")[1].trim().split(" ");
         UnattendedRebootMetricEvent event = new UnattendedRebootMetricEvent();
         for (String metric: metricFields) {
             // Each key-value pair will be of the form "key=value"
