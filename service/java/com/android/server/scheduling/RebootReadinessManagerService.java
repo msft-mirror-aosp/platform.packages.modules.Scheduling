@@ -38,8 +38,8 @@ import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.provider.DeviceConfig;
-import android.scheduling.IRebootReadinessListener;
 import android.scheduling.IRebootReadinessManager;
+import android.scheduling.IRequestRebootReadinessStatusListener;
 import android.scheduling.RebootReadinessManager;
 import android.util.ArraySet;
 import android.util.Log;
@@ -65,8 +65,8 @@ import java.util.concurrent.TimeUnit;
 public class RebootReadinessManagerService extends IRebootReadinessManager.Stub {
     private static final String TAG = "RebootReadinessManager";
 
-    private final RemoteCallbackList<IRebootReadinessListener> mCallbacks =
-            new RemoteCallbackList<IRebootReadinessListener>();
+    private final RemoteCallbackList<IRequestRebootReadinessStatusListener> mCallbacks =
+            new RemoteCallbackList<IRequestRebootReadinessStatusListener>();
     private final Handler mHandler;
     private final Executor mExecutor;
 
@@ -276,19 +276,22 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     }
 
     @Override
-    public void addRebootReadinessListener(IRebootReadinessListener callback) {
+    public void addRequestRebootReadinessStatusListener(
+            IRequestRebootReadinessStatusListener callback) {
         mContext.enforceCallingPermission(Manifest.permission.SIGNAL_REBOOT_READINESS,
                 "Caller does not have SIGNAL_REBOOT_READINESS permission.");
         mCallbacks.register(callback);
         try {
-            callback.asBinder().linkToDeath(() -> removeRebootReadinessListener(callback), 0);
+            callback.asBinder().linkToDeath(
+                    () -> removeRequestRebootReadinessStatusListener(callback), 0);
         } catch (RemoteException e) {
-            removeRebootReadinessListener(callback);
+            removeRequestRebootReadinessStatusListener(callback);
         }
     }
 
     @Override
-    public void removeRebootReadinessListener(IRebootReadinessListener callback) {
+    public void removeRequestRebootReadinessStatusListener(
+            IRequestRebootReadinessStatusListener callback) {
         mContext.enforceCallingPermission(Manifest.permission.SIGNAL_REBOOT_READINESS,
                 "Caller does not have SIGNAL_REBOOT_READINESS permission.");
         mCallbacks.unregister(callback);
@@ -343,12 +346,12 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             }
         }
 
-        final List<IRebootReadinessListener> blockingCallbacks = new ArrayList<>();
+        final List<IRequestRebootReadinessStatusListener> blockingCallbacks = new ArrayList<>();
         int i = mCallbacks.beginBroadcast();
         CountDownLatch latch = new CountDownLatch(i);
         while (i > 0) {
             i--;
-            final IRebootReadinessListener callback = mCallbacks.getBroadcastItem(i);
+            final IRequestRebootReadinessStatusListener callback = mCallbacks.getBroadcastItem(i);
             try {
                 RemoteCallback remoteCallback = new RemoteCallback(
                         result -> {
@@ -363,7 +366,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                             latch.countDown();
                         }
                 );
-                callback.onRebootPending(remoteCallback);
+                callback.onRequestRebootReadinessStatus(remoteCallback);
             } catch (RemoteException e) {
                 Log.e(TAG, "Could not resolve state of RebootReadinessCallback: " + e);
                 return false;
