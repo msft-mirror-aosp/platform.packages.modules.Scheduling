@@ -37,9 +37,9 @@ public class SchedulingFrameworkInitializer {
      *     {@link SystemServiceRegistry}
      */
     public static void registerServiceWrappers() {
-        SystemServiceRegistry.registerStaticService(
+        SystemServiceRegistry.registerContextAwareService(
                 Context.REBOOT_READINESS_SERVICE, RebootReadinessManager.class,
-                (service) -> new RebootReadinessManager(
+                (context, service) -> new RebootReadinessManager(context,
                         IRebootReadinessManager.Stub.asInterface(service)));
     }
 }
