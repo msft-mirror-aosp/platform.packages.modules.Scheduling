@@ -8,6 +8,6 @@ import android.os.RemoteCallback;
  *
  * {@hide}
  */
-oneway interface IRebootReadinessListener {
-  void onRebootPending(in RemoteCallback reply);
+oneway interface IRequestRebootReadinessStatusListener {
+  void onRequestRebootReadinessStatus(in RemoteCallback reply);
 }
