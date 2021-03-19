@@ -16,7 +16,7 @@
 
 package android.scheduling;
 
-import android.scheduling.IRebootReadinessListener;
+import android.scheduling.IRequestRebootReadinessStatusListener;
 
 
 /** {@hide} */
@@ -24,6 +24,6 @@ interface IRebootReadinessManager {
     void markRebootPending(in String callingPackage);
     void cancelPendingReboot(in String callingPackage);
     boolean isReadyToReboot();
-    void addRebootReadinessListener(in IRebootReadinessListener listener);
-    void removeRebootReadinessListener(in IRebootReadinessListener listener);
+    void addRequestRebootReadinessStatusListener(in IRequestRebootReadinessStatusListener listener);
+    void removeRequestRebootReadinessStatusListener(in IRequestRebootReadinessStatusListener listener);
 }
