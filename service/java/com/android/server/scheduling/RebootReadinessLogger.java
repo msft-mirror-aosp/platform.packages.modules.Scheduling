@@ -60,6 +60,9 @@ final class RebootReadinessLogger {
     @GuardedBy("mLock")
     private boolean mNeedsToLogMetrics;
 
+    @GuardedBy("mLock")
+    private boolean mShouldDumpMetrics;
+
     RebootReadinessLogger() {
     }
 
@@ -83,6 +86,13 @@ final class RebootReadinessLogger {
             File deDir = ApexEnvironment.getApexEnvironment(
                     MODULE_NAME).getDeviceProtectedDataDir();
             AtomicFile rebootStatsFile = new AtomicFile(new File(deDir, REBOOT_STATS_FILE));
+
+            mStartTime = startTime;
+            mReadyTime = readyTime;
+            mTimesBlockedByInteractivity = timesBlockedByInteractivity;
+            mTimesBlockedBySubsystems = timesBlockedBySubsystems;
+            mTimesBlockedByAppActivity = timesBlockedByAppActivity;
+            mShouldDumpMetrics = true;
 
             RebootStats rebootStats = new RebootStats();
             rebootStats.setStartTimeMs(startTime);
@@ -150,6 +160,7 @@ final class RebootReadinessLogger {
                         mTimesBlockedByAppActivity,
                         mTimesBlockedBySubsystems,
                         mTimesBlockedByInteractivity);
+                mShouldDumpMetrics = true;
             }
         }
     }
@@ -161,6 +172,19 @@ final class RebootReadinessLogger {
             return new AtomicFile(new File(deDir, REBOOT_STATS_FILE));
         } else {
             return null;
+        }
+    }
+
+    void dump(PrintWriter pw) {
+        synchronized (mLock) {
+            if (mShouldDumpMetrics) {
+                pw.println("Previous reboot readiness checks:");
+                pw.println("    Start timestamp: " + mStartTime);
+                pw.println("    Ready timestamp: " +  mReadyTime);
+                pw.println("    Times blocked by interactivity " + mTimesBlockedByInteractivity);
+                pw.println("    Times blocked by subsystems " + mTimesBlockedBySubsystems);
+                pw.println("    Times blocked by app activity " + mTimesBlockedByAppActivity);
+            }
         }
     }
 }
