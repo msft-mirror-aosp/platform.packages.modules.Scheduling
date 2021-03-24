@@ -18,12 +18,17 @@ package com.android.server.scheduling;
 
 import android.annotation.CurrentTimeMillisLong;
 import android.content.ApexEnvironment;
+import android.os.SystemClock;
 import android.util.AtomicFile;
 import android.util.Log;
 
+import com.android.internal.annotations.GuardedBy;
+
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
+
 
 /**
  * Class for handling the storage of logging information related to reboot readiness.
@@ -35,9 +40,30 @@ final class RebootReadinessLogger {
 
     private static final String REBOOT_STATS_FILE = "reboot-readiness/reboot-stats.xml";
 
-    private static final Object sLock = new Object();
+    private final Object mLock = new Object();
 
-    private RebootReadinessLogger() {
+    @GuardedBy("mLock")
+    private long mStartTime;
+
+    @GuardedBy("mLock")
+    private long mReadyTime;
+
+    @GuardedBy("mLock")
+    private int mTimesBlockedByInteractivity;
+
+    @GuardedBy("mLock")
+    private int mTimesBlockedBySubsystems;
+
+    @GuardedBy("mLock")
+    private int mTimesBlockedByAppActivity;
+
+    @GuardedBy("mLock")
+    private boolean mNeedsToLogMetrics;
+
+    @GuardedBy("mLock")
+    private boolean mShouldDumpMetrics;
+
+    RebootReadinessLogger() {
     }
 
     /**
@@ -53,13 +79,20 @@ final class RebootReadinessLogger {
      * @param timesBlockedByAppActivity the number of times the reboot was blocked by background
      *                                  app activity
      */
-    static void writeAfterRebootReadyBroadcast(@CurrentTimeMillisLong long startTime,
+    void writeAfterRebootReadyBroadcast(@CurrentTimeMillisLong long startTime,
             @CurrentTimeMillisLong long readyTime, int timesBlockedByInteractivity,
             int timesBlockedBySubsystems, int timesBlockedByAppActivity) {
-        synchronized (sLock) {
+        synchronized (mLock) {
             File deDir = ApexEnvironment.getApexEnvironment(
                     MODULE_NAME).getDeviceProtectedDataDir();
             AtomicFile rebootStatsFile = new AtomicFile(new File(deDir, REBOOT_STATS_FILE));
+
+            mStartTime = startTime;
+            mReadyTime = readyTime;
+            mTimesBlockedByInteractivity = timesBlockedByInteractivity;
+            mTimesBlockedBySubsystems = timesBlockedBySubsystems;
+            mTimesBlockedByAppActivity = timesBlockedByAppActivity;
+            mShouldDumpMetrics = true;
 
             RebootStats rebootStats = new RebootStats();
             rebootStats.setStartTimeMs(startTime);
@@ -76,6 +109,81 @@ final class RebootReadinessLogger {
                 rebootStatsFile.finishWrite(stream);
             } catch (Exception e) {
                 Log.e(TAG, "Could not write reboot readiness stats: " + e);
+            }
+        }
+    }
+
+    /**
+     * If any metrics were stored before the last reboot, reads them into local variables. These
+     * local variables will be logged when the device is first unlocked after reboot.
+     */
+    void readMetricsPostReboot() {
+        synchronized (mLock) {
+            AtomicFile rebootStatsFile = getRebootStatsFile();
+            if (rebootStatsFile != null) {
+                try (FileInputStream stream = rebootStatsFile.openRead()) {
+                    RebootStats rebootStats = XmlParser.read(stream);
+                    mReadyTime = rebootStats.getReadyTimeMs();
+                    mStartTime = rebootStats.getStartTimeMs();
+                    mTimesBlockedByInteractivity = rebootStats.getTimesBlockedByInteractivity();
+                    mTimesBlockedBySubsystems = rebootStats.getTimesBlockedBySubsystems();
+                    mTimesBlockedByAppActivity = rebootStats.getTimesBlockedByAppActivity();
+                    mNeedsToLogMetrics = true;
+                } catch (Exception e) {
+                    Log.e(TAG, "Could not read reboot readiness stats: " + e);
+                } finally {
+                    rebootStatsFile.delete();
+                }
+            }
+        }
+    }
+
+    /**
+     * Logs metrics which have been stored across reboots, if any exist. This method will be called
+     * after the first time the device is unlocked after reboot.
+     */
+    void writePostRebootMetrics() {
+        synchronized (mLock) {
+            if (mNeedsToLogMetrics) {
+                mNeedsToLogMetrics = false;
+                long timeToUnlockMs = SystemClock.elapsedRealtime();
+                long timeToRebootReadyMs = mReadyTime - mStartTime;
+                Log.i(TAG, "UnattendedRebootOccurred"
+                        + " rebootReadyMs=" + timeToRebootReadyMs
+                        + " timeUntilFirstUnlockMs=" + timeToUnlockMs
+                        + " blockedByInteractivity=" + mTimesBlockedByInteractivity
+                        + " blockedBySubsystems=" + mTimesBlockedBySubsystems
+                        + " blockedByAppActivity=" + mTimesBlockedByAppActivity);
+                SchedulingStatsLog.write(SchedulingStatsLog.UNATTENDED_REBOOT_OCCURRED,
+                        timeToRebootReadyMs,
+                        timeToUnlockMs,
+                        mTimesBlockedByAppActivity,
+                        mTimesBlockedBySubsystems,
+                        mTimesBlockedByInteractivity);
+                mShouldDumpMetrics = true;
+            }
+        }
+    }
+
+    private static AtomicFile getRebootStatsFile() {
+        File deDir = ApexEnvironment.getApexEnvironment(MODULE_NAME).getDeviceProtectedDataDir();
+        File file = new File(deDir, REBOOT_STATS_FILE);
+        if (file.exists()) {
+            return new AtomicFile(new File(deDir, REBOOT_STATS_FILE));
+        } else {
+            return null;
+        }
+    }
+
+    void dump(PrintWriter pw) {
+        synchronized (mLock) {
+            if (mShouldDumpMetrics) {
+                pw.println("Previous reboot readiness checks:");
+                pw.println("    Start timestamp: " + mStartTime);
+                pw.println("    Ready timestamp: " +  mReadyTime);
+                pw.println("    Times blocked by interactivity " + mTimesBlockedByInteractivity);
+                pw.println("    Times blocked by subsystems " + mTimesBlockedBySubsystems);
+                pw.println("    Times blocked by app activity " + mTimesBlockedByAppActivity);
             }
         }
     }
