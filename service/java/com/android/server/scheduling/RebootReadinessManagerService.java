@@ -25,6 +25,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.net.TetheredClient;
 import android.net.TetheringManager;
 import android.net.TetheringManager.TetheringEventCallback;
@@ -49,6 +50,8 @@ import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.SystemService;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -77,6 +80,8 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     private final ActivityManager mActivityManager;
 
     private final AlarmManager mAlarmManager;
+
+    private final RebootReadinessLogger mRebootReadinessLogger;
 
     // For testing purposes only. Listeners whose names start with this prefix will be able to
     // inform the reboot signal, even if subsystem checks are disabled for testing.
@@ -164,11 +169,19 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         }
     };
 
+    private final BroadcastReceiver mUserPresentReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            handleUserPresent();
+        }
+    };
+
     @VisibleForTesting
     RebootReadinessManagerService(Context context) {
         // TODO(b/161353402): Consolidate mHandler and mExecutor
         mHandler = new Handler(Looper.getMainLooper());
         mExecutor = new HandlerExecutor(mHandler);
+        mRebootReadinessLogger = new RebootReadinessLogger();
         updateConfigs();
         DeviceConfig.addOnPropertiesChangedListener(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 mExecutor, properties -> updateConfigs());
@@ -183,20 +196,25 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                 }
             }
         };
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(Intent.ACTION_SCREEN_ON);
-        filter.addAction(Intent.ACTION_SCREEN_OFF);
-        context.registerReceiver(interactivityChangedReceiver, filter);
+        IntentFilter interactivityFilter = new IntentFilter();
+        interactivityFilter.addAction(Intent.ACTION_SCREEN_ON);
+        interactivityFilter.addAction(Intent.ACTION_SCREEN_OFF);
+        context.registerReceiver(interactivityChangedReceiver, interactivityFilter);
         PowerManager powerManager = context.getSystemService(PowerManager.class);
         if (powerManager != null) {
             noteInteractivityStateChanged(powerManager.isInteractive());
         }
+
+        IntentFilter userPresentFilter = new IntentFilter();
+        userPresentFilter.addAction(Intent.ACTION_USER_PRESENT);
+        context.registerReceiver(mUserPresentReceiver, userPresentFilter);
         mActivityManager = context.getSystemService(ActivityManager.class);
         mAlarmManager = context.getSystemService(AlarmManager.class);
         TetheringManager mTetheringManager = context.getSystemService(TetheringManager.class);
         if (mTetheringManager != null) {
             mTetheringManager.registerTetheringEventCallback(mExecutor, mTetheringEventCallback);
         }
+        mHandler.post(mRebootReadinessLogger::readMetricsPostReboot);
         mContext = context;
     }
 
@@ -222,6 +240,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         mContext.enforceCallingPermission(Manifest.permission.REBOOT,
                 "Caller does not have REBOOT permission.");
         synchronized (mLock) {
+            Log.i(TAG, "Starting reboot readiness checks for package: " + callingPackage);
             // If there are existing clients waiting for a broadcast, reboot readiness checks
             // are already ongoing.
             if (mCallingUidToPackageMap.size() == 0) {
@@ -408,6 +427,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
 
     private void noteRebootReadinessStateChanged(boolean isReadyToReboot) {
         synchronized (mLock) {
+            Log.i(TAG, "Reboot readiness state changed to " + isReadyToReboot);
             mReadyToReboot = isReadyToReboot;
             Intent intent = new Intent(Intent.ACTION_REBOOT_READY);
             intent.putExtra(Intent.EXTRA_IS_READY_TO_REBOOT, isReadyToReboot);
@@ -416,12 +436,14 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             for (int i = 0; i < mCallingUidToPackageMap.size(); i++) {
                 ArraySet<String> packageNames = mCallingUidToPackageMap.valueAt(i);
                 for (int j = 0; j < packageNames.size(); j++) {
-                    intent.setPackage(packageNames.valueAt(j));
+                    String packageName = packageNames.valueAt(j);
+                    Log.i(TAG, "Sending REBOOT_READY broadcast to package " + packageName);
+                    intent.setPackage(packageName);
                     mContext.sendBroadcast(intent, Manifest.permission.REBOOT);
                 }
             }
             if (mReadyToReboot) {
-                RebootReadinessLogger.writeAfterRebootReadyBroadcast(
+                mRebootReadinessLogger.writeAfterRebootReadyBroadcast(
                         mPollingStartTimeMs, System.currentTimeMillis(),
                         mTimesBlockedByInteractivity, mTimesBlockedBySubsystems,
                         mTimesBlockedByAppActivity);
@@ -476,11 +498,39 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         }
     }
 
+    private void handleUserPresent() {
+        mContext.unregisterReceiver(mUserPresentReceiver);
+        mRebootReadinessLogger.writePostRebootMetrics();
+    }
+
     @GuardedBy("mLock")
     private void resetMetrics() {
         mPollingStartTimeMs = System.currentTimeMillis();
         mTimesBlockedByInteractivity = 0;
         mTimesBlockedBySubsystems = 0;
         mTimesBlockedByAppActivity = 0;
+    }
+
+    @Override
+    protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        if (mContext.checkCallingOrSelfPermission(Manifest.permission.DUMP)
+                != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        synchronized (mLock) {
+            mRebootReadinessLogger.dump(pw);
+            if (mCallingUidToPackageMap.size() > 0) {
+                pw.print("Packages awaiting REBOOT_READY broadcast:");
+                for (int i = 0; i < mCallingUidToPackageMap.size(); i++) {
+                    ArraySet<String> packageNames = mCallingUidToPackageMap.valueAt(i);
+                    for (int j = 0; j < packageNames.size(); j++) {
+                        pw.print(" " + packageNames.valueAt(j));
+                    }
+                }
+                pw.println();
+                pw.println("Current reboot readiness state: " + mReadyToReboot);
+            }
+        }
     }
 }
