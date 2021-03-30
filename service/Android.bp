@@ -23,6 +23,25 @@ filegroup {
     ],
 }
 
+genrule {
+    name: "statslog-scheduling-java-gen",
+    tools: ["stats-log-api-gen"],
+    cmd: "$(location stats-log-api-gen) --java $(out) --module scheduling" +
+         " --javaPackage com.android.server.scheduling --javaClass SchedulingStatsLog" +
+         " --minApiLevel current",
+    out: ["com/android/server/scheduling/SchedulingStatsLog.java"],
+}
+
+
+java_library {
+    name: "scheduling-statsd",
+    sdk_version: "system_current",
+    srcs: [":statslog-scheduling-java-gen"],
+    apex_available: [
+        "com.android.scheduling",
+    ]
+}
+
 java_library {
     name: "service-scheduling",
     srcs: [
@@ -38,6 +57,9 @@ java_library {
         "framework-scheduling",
         "framework-tethering.stubs.module_lib",
         "unsupportedappusage",
+    ],
+    static_libs: [
+        "scheduling-statsd",
     ],
     jarjar_rules: ":scheduling-jarjar-rules",
     apex_available: [
