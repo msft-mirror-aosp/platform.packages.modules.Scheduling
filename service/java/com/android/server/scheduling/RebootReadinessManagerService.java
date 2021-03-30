@@ -429,8 +429,8 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         synchronized (mLock) {
             Log.i(TAG, "Reboot readiness state changed to " + isReadyToReboot);
             mReadyToReboot = isReadyToReboot;
-            Intent intent = new Intent(Intent.ACTION_REBOOT_READY);
-            intent.putExtra(Intent.EXTRA_IS_READY_TO_REBOOT, isReadyToReboot);
+            Intent intent = new Intent(RebootReadinessManager.ACTION_REBOOT_READY);
+            intent.putExtra(RebootReadinessManager.EXTRA_IS_READY_TO_REBOOT, isReadyToReboot);
 
             // Send state change broadcast to any packages which have a pending update
             for (int i = 0; i < mCallingUidToPackageMap.size(); i++) {

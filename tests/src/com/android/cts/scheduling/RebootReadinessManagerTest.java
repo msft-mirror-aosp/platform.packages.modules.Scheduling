@@ -147,14 +147,15 @@ public class RebootReadinessManagerTest {
             boolean mExpectedExtra = true;
             @Override
             public void onReceive(Context context, Intent intent) {
-                boolean extra = intent.getBooleanExtra(Intent.EXTRA_IS_READY_TO_REBOOT, false);
+                boolean extra = intent.getBooleanExtra(
+                        RebootReadinessManager.EXTRA_IS_READY_TO_REBOOT, false);
                 assertThat(extra).isEqualTo(mExpectedExtra);
                 mExpectedExtra = !mExpectedExtra;
                 latch.countDown();
             }
         };
         InstrumentationRegistry.getContext().registerReceiver(receiver,
-                new IntentFilter(Intent.ACTION_REBOOT_READY));
+                new IntentFilter(RebootReadinessManager.ACTION_REBOOT_READY));
         mRebootReadinessManager.addRequestRebootReadinessStatusListener(
                 sHandlerExecutor, READY_CALLBACK);
         assertThat(isReadyToReboot()).isTrue();
@@ -216,7 +217,7 @@ public class RebootReadinessManagerTest {
             }
         };
         InstrumentationRegistry.getContext().registerReceiver(receiver,
-                new IntentFilter(Intent.ACTION_REBOOT_READY));
+                new IntentFilter(RebootReadinessManager.ACTION_REBOOT_READY));
         mRebootReadinessManager.removeRequestRebootReadinessStatusListener(BLOCKING_CALLBACK);
 
         // Ensure that no broadcast is received when reboot readiness checks are canceled.
