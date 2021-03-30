@@ -247,6 +247,23 @@ public class RebootReadinessManagerTest {
         assertThat(isReadyToReboot()).isTrue();
     }
 
+    @Test
+    public void testRebootReadinessStatus() {
+        RebootReadinessStatus status = new RebootReadinessStatus(false, 1000, "test");
+        assertThat(status.isReadyToReboot()).isFalse();
+        assertThat(status.getEstimatedFinishTime()).isEqualTo(1000);
+        assertThat(status.getLogSubsystemName()).isEqualTo("test");
+    }
+
+    @Test
+    public void testRebootReadinessStatusWithEmptyNameThrowsException() {
+        try {
+            RebootReadinessStatus status = new RebootReadinessStatus(false, 1000, "");
+            fail("Expected to throw exception when an empty name is supplied.");
+        } catch (IllegalArgumentException expected) {
+        }
+    }
+
     private boolean isReadyToReboot() throws Exception {
         mRebootReadinessManager.markRebootPending();
         // Add a small timeout to allow the reboot readiness state to be noted.
