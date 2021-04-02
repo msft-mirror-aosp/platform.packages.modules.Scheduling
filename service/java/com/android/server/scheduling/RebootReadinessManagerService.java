@@ -96,6 +96,8 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     private static final String PROPERTY_DISABLE_APP_ACTIVITY_CHECK = "disable_app_activity_check";
     private static final String PROPERTY_DISABLE_SUBSYSTEMS_CHECK = "disable_subsystems_check";
     private static final String PROPERTY_ALARM_CLOCK_THRESHOLD_MS = "alarm_clock_threshold_ms";
+    private static final String PROPERTY_LOGGING_BLOCKING_ENTITY_THRESHOLD_MS =
+            "logging_blocking_entity_threshold_ms";
 
 
     private static final long DEFAULT_POLLING_INTERVAL_WHILE_IDLE_MS = TimeUnit.MINUTES.toMillis(1);
@@ -103,6 +105,8 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             TimeUnit.MINUTES.toMillis(5);
     private static final long DEFAULT_INTERACTIVITY_THRESHOLD_MS = TimeUnit.MINUTES.toMillis(30);
     private static final long DEFAULT_ALARM_CLOCK_THRESHOLD_MS = TimeUnit.MINUTES.toMillis(10);
+    private static final long DEFAULT_LOGGING_BLOCKING_ENTITY_THRESHOLD_MS =
+            TimeUnit.HOURS.toMillis(1);
 
     @GuardedBy("mLock")
     private long mActivePollingIntervalMs = DEFAULT_POLLING_INTERVAL_WHILE_ACTIVE_MS;
@@ -127,6 +131,9 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
 
     @GuardedBy("mLock")
     private long mAlarmClockThresholdMs = DEFAULT_ALARM_CLOCK_THRESHOLD_MS;
+
+    @GuardedBy("mLock")
+    private long mLoggingBlockingEntityThresholdMs = DEFAULT_LOGGING_BLOCKING_ENTITY_THRESHOLD_MS;
 
     // A mapping of uid to package name for uids which have called markRebootPending. Reboot
     // readiness state changed broadcasts will only be sent to the values in this map.
@@ -366,6 +373,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         }
 
         final List<IRequestRebootReadinessStatusListener> blockingCallbacks = new ArrayList<>();
+        final List<String> blockingCallbackNames = new ArrayList<>();
         int i = mCallbacks.beginBroadcast();
         CountDownLatch latch = new CountDownLatch(i);
         while (i > 0) {
@@ -381,6 +389,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                             if (!isReadyToReboot && (!mDisableSubsystemsCheck
                                     || name.startsWith(TEST_CALLBACK_PREFIX))) {
                                 blockingCallbacks.add(callback);
+                                blockingCallbackNames.add(name);
                             }
                             latch.countDown();
                         }
@@ -396,6 +405,8 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         } catch (InterruptedException ignore) {
         }
         mCallbacks.finishBroadcast();
+        mRebootReadinessLogger.maybeLogLongBlockingComponents(blockingCallbackNames,
+                mLoggingBlockingEntityThresholdMs);
         return blockingCallbacks.size() == 0;
     }
 
@@ -414,13 +425,16 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         if (mActivityManager != null) {
             final List<RunningServiceInfo> serviceInfos =
                     mActivityManager.getRunningServices(Integer.MAX_VALUE);
+            List<Integer> blockingUids = new ArrayList<>();
             for (int i = 0; i < serviceInfos.size(); i++) {
                 RunningServiceInfo info = serviceInfos.get(i);
                 if (info.foreground) {
-                    return false;
+                    blockingUids.add(info.uid);
                 }
             }
-            return true;
+            mRebootReadinessLogger.maybeLogLongBlockingApps(blockingUids,
+                    mLoggingBlockingEntityThresholdMs);
+            return blockingUids.size() == 0;
         }
         return false;
     }
@@ -485,6 +499,10 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             mAlarmClockThresholdMs = DeviceConfig.getLong(
                     DeviceConfig.NAMESPACE_REBOOT_READINESS,
                     PROPERTY_ALARM_CLOCK_THRESHOLD_MS, DEFAULT_ALARM_CLOCK_THRESHOLD_MS);
+            mLoggingBlockingEntityThresholdMs = DeviceConfig.getLong(
+                    DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                    PROPERTY_LOGGING_BLOCKING_ENTITY_THRESHOLD_MS,
+                    DEFAULT_LOGGING_BLOCKING_ENTITY_THRESHOLD_MS);
         }
     }
 
