@@ -16,11 +16,18 @@
 
 package com.android.server.scheduling;
 
+import static com.android.server.scheduling.SchedulingStatsLog.LONG_REBOOT_BLOCKING_REPORTED;
+import static com.android.server.scheduling.SchedulingStatsLog.LONG_REBOOT_BLOCKING_REPORTED__REBOOT_BLOCK_REASON__APP_UID;
+import static com.android.server.scheduling.SchedulingStatsLog.LONG_REBOOT_BLOCKING_REPORTED__REBOOT_BLOCK_REASON__SYSTEM_COMPONENT;
+
 import android.annotation.CurrentTimeMillisLong;
+import android.annotation.IntDef;
 import android.content.ApexEnvironment;
 import android.os.SystemClock;
+import android.util.ArrayMap;
 import android.util.AtomicFile;
 import android.util.Log;
+import android.util.SparseArray;
 
 import com.android.internal.annotations.GuardedBy;
 
@@ -28,6 +35,10 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
+import java.util.List;
 
 
 /**
@@ -41,6 +52,12 @@ final class RebootReadinessLogger {
     private static final String REBOOT_STATS_FILE = "reboot-readiness/reboot-stats.xml";
 
     private final Object mLock = new Object();
+
+    @GuardedBy("mLock")
+    private final SparseArray<BlockingEntityRecord> mBlockingApps = new SparseArray<>();
+
+    @GuardedBy("mLock")
+    private final ArrayMap<String, BlockingEntityRecord> mBlockingComponents = new ArrayMap<>();
 
     @GuardedBy("mLock")
     private long mStartTime;
@@ -101,7 +118,7 @@ final class RebootReadinessLogger {
             rebootStats.setTimesBlockedBySubsystems(timesBlockedBySubsystems);
             rebootStats.setTimesBlockedByAppActivity(timesBlockedByAppActivity);
             try (
-                FileOutputStream stream = rebootStatsFile.startWrite();
+                FileOutputStream stream = rebootStatsFile.startWrite()
             ) {
                 XmlWriter writer = new XmlWriter(new PrintWriter(stream));
                 XmlWriter.write(writer, rebootStats);
@@ -165,6 +182,71 @@ final class RebootReadinessLogger {
         }
     }
 
+    /**
+     * Tracks any components which are currently blocking the reboot. If any of the components have
+     * been blocking the reboot for longer than the given threshold, this information will be logged
+     * to SchedulingStatsLog. Any components which previously blocked the reboot but are currently
+     * not blocking the reboot will be pruned from the set of tracked components.
+     *
+     * @param blockingComponentNames list of component names which are blocking the reboot.
+     * @param thresholdMs the time a component may block the reboot for before being logged.
+     */
+    void maybeLogLongBlockingComponents(List<String> blockingComponentNames, long thresholdMs) {
+        synchronized (mLock) {
+            for (String component : blockingComponentNames) {
+                BlockingEntityRecord record = mBlockingComponents.get(component);
+                if (record == null) {
+                    record = new BlockingEntityRecord(component);
+                    mBlockingComponents.put(component, record);
+                }
+                record.logLongRebootBlockingIfNecessary(thresholdMs);
+            }
+
+            for (String existingRecordName : mBlockingComponents.keySet()) {
+                if (!blockingComponentNames.contains(existingRecordName)) {
+                    mBlockingComponents.remove(existingRecordName);
+                }
+            }
+        }
+    }
+
+    /**
+     * Tracks any app uids which are currently blocking the reboot. If any of the apps have been
+     * blocking the reboot for longer than the given threshold, this information will be logged
+     * to SchedulingStatsLog. Any apps which previously blocked the reboot but are currently
+     * not blocking the reboot will be pruned from the set of tracked uids.
+     *
+     * @param blockingAppUids list of app uids which are blocking the reboot.
+     * @param thresholdMs the time an app may block the reboot for before being logged.
+     *
+     * TODO(b/184165442): Use IntArray instead.
+     */
+    void maybeLogLongBlockingApps(List<Integer> blockingAppUids, long thresholdMs) {
+        synchronized (mLock) {
+            for (Integer uid : blockingAppUids) {
+                BlockingEntityRecord record = mBlockingApps.get(uid);
+                if (record == null) {
+                    record = new BlockingEntityRecord(uid);
+                    mBlockingApps.put(uid, record);
+                }
+                record.logLongRebootBlockingIfNecessary(thresholdMs);
+            }
+
+            List<Integer> uidsToPrune = new ArrayList<>();
+            for (int i = 0; i < mBlockingApps.size(); i++) {
+                int uid = mBlockingApps.keyAt(i);
+                if (!blockingAppUids.contains(uid)) {
+                    uidsToPrune.add(uid);
+                }
+            }
+
+            for (Integer uid : uidsToPrune) {
+                mBlockingApps.remove(uid);
+            }
+        }
+    }
+
+
     private static AtomicFile getRebootStatsFile() {
         File deDir = ApexEnvironment.getApexEnvironment(MODULE_NAME).getDeviceProtectedDataDir();
         File file = new File(deDir, REBOOT_STATS_FILE);
@@ -184,6 +266,88 @@ final class RebootReadinessLogger {
                 pw.println("    Times blocked by interactivity " + mTimesBlockedByInteractivity);
                 pw.println("    Times blocked by subsystems " + mTimesBlockedBySubsystems);
                 pw.println("    Times blocked by app activity " + mTimesBlockedByAppActivity);
+            }
+        }
+    }
+
+
+    /**
+     * Class for tracking system components or app uids which are blocking the reboot. Handles
+     * the tracking of how long an entity has blocked the reboot for, and handles the logging
+     * of LongRebootBlockingReported events to SchedulingStatsLog.
+     */
+    private static final class BlockingEntityRecord {
+
+        private final int mType;
+        private String mComponentName;
+        private int mAppUid;
+        @CurrentTimeMillisLong private long mLastMetricLoggedTime;
+
+        @Retention(RetentionPolicy.SOURCE)
+        @IntDef({
+            ENTITY_TYPE_COMPONENT,
+            ENTITY_TYPE_APP,
+        })
+        private @interface EntityType {}
+
+        private static final int ENTITY_TYPE_COMPONENT = 1;
+        private static final int ENTITY_TYPE_APP = 2;
+
+        private BlockingEntityRecord(String name) {
+            mType = ENTITY_TYPE_COMPONENT;
+            mComponentName = name;
+            mLastMetricLoggedTime = System.currentTimeMillis();
+        }
+
+        private BlockingEntityRecord(int uid) {
+            mType = ENTITY_TYPE_APP;
+            mAppUid = uid;
+            mLastMetricLoggedTime = System.currentTimeMillis();
+        }
+
+        /**
+         * Writes to SchedulingStatsLog if this entity has been blocking the reboot for longer
+         * than the given threshold. If this entity has been previously written to
+         * SchedulingStatsLog, the threshold will be compared with the time since the previous
+         * metric was recorded.
+         */
+        private void logLongRebootBlockingIfNecessary(long thresholdMs) {
+            final long now = System.currentTimeMillis();
+            if ((now - mLastMetricLoggedTime) > thresholdMs) {
+                int rebootBlockReason = mapEntityTypeToRebootBlockReason(mType);
+                SchedulingStatsLog.write(LONG_REBOOT_BLOCKING_REPORTED, rebootBlockReason,
+                        mComponentName, mAppUid);
+                Log.i(TAG, "LongRebootBlockingReported "
+                        + " rebootBlockReason=" + rebootBlockReasonToString(rebootBlockReason)
+                        + " componentName=" + mComponentName
+                        + " appUid=" + mAppUid);
+                mLastMetricLoggedTime = now;
+            }
+        }
+
+        /**
+         * Returns the reboot block reason which should be logged to SchedulingStatsLog if a given
+         * EntityType is blocking the reboot for a long time.
+         */
+        private static int mapEntityTypeToRebootBlockReason(@EntityType int type) {
+            if (type == ENTITY_TYPE_COMPONENT) {
+                return LONG_REBOOT_BLOCKING_REPORTED__REBOOT_BLOCK_REASON__SYSTEM_COMPONENT;
+            } else {
+                return LONG_REBOOT_BLOCKING_REPORTED__REBOOT_BLOCK_REASON__APP_UID;
+            }
+        }
+
+        /**
+         * Maps a reboot block reason to a readable string for logging purposes.
+         */
+        private static String rebootBlockReasonToString(int rebootBlockReason) {
+            switch (rebootBlockReason) {
+                case LONG_REBOOT_BLOCKING_REPORTED__REBOOT_BLOCK_REASON__APP_UID:
+                    return "APP_UID";
+                case LONG_REBOOT_BLOCKING_REPORTED__REBOOT_BLOCK_REASON__SYSTEM_COMPONENT:
+                    return "SYSTEM_COMPONENT";
+                default:
+                    return "UNKNOWN";
             }
         }
     }
