@@ -54,12 +54,13 @@ public class RebootReadinessTest {
         BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                if (intent.getBooleanExtra(Intent.EXTRA_IS_READY_TO_REBOOT, false)) {
+                if (intent.getBooleanExtra(
+                        RebootReadinessManager.EXTRA_IS_READY_TO_REBOOT, false)) {
                     latch.countDown();
                 }
             }
         };
-        IntentFilter filter = new IntentFilter(Intent.ACTION_REBOOT_READY);
+        IntentFilter filter = new IntentFilter(RebootReadinessManager.ACTION_REBOOT_READY);
         InstrumentationRegistry.getContext().registerReceiver(receiver, filter);
         if (rebootReadinessManager != null) {
             rebootReadinessManager.markRebootPending();
