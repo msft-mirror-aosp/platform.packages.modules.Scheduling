@@ -20,10 +20,10 @@ import android.annotation.CallbackExecutor;
 import android.annotation.CurrentTimeMillisLong;
 import android.annotation.NonNull;
 import android.annotation.RequiresPermission;
+import android.annotation.SdkConstant;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.content.Context;
-import android.content.Intent;
 import android.os.Bundle;
 import android.os.RemoteCallback;
 import android.os.RemoteException;
@@ -41,8 +41,8 @@ import java.util.concurrent.Executor;
  * an updater has notified this service that there is a pending update that requires a reboot, this
  * service will periodically check several signals which contribute to the reboot readiness
  * decision. When the device's reboot-readiness changes, a
- * {@link Intent#ACTION_REBOOT_READY} broadcast will be sent. The associated extra
- * {@link Intent#EXTRA_IS_READY_TO_REBOOT} will be {@code true} when the device is ready to reboot,
+ * {@link #ACTION_REBOOT_READY} broadcast will be sent. The associated extra
+ * {@link #EXTRA_IS_READY_TO_REBOOT} will be {@code true} when the device is ready to reboot,
  * and {@code false} when it is not ready to reboot.
  *
  * <p>Subsystems may register callbacks with this service. These callbacks allow subsystems to
@@ -61,6 +61,33 @@ public final class RebootReadinessManager {
     private final Context mContext;
     private final ArrayMap<RequestRebootReadinessStatusListener,
             RebootReadinessCallbackProxy> mProxyList = new ArrayMap<>();
+
+    /**
+     * Broadcast Action: Indicates that the device's reboot readiness has changed.
+     *
+     * <p>This broadcast will be sent with an extra that indicates whether or not the device is
+     * ready to reboot.
+     * <p>
+     * The receiver <em>must</em> have the {@link android.Manifest.permission#REBOOT} permission.
+     * <p class="note">
+     * This is a protected intent that can only be sent by the system.
+     *
+     * @see #EXTRA_IS_READY_TO_REBOOT
+     * @hide
+     */
+    @SystemApi
+    @SdkConstant(SdkConstant.SdkConstantType.BROADCAST_INTENT_ACTION)
+    public static final String ACTION_REBOOT_READY = "android.scheduling.action.REBOOT_READY";
+
+    /**
+     * A boolean extra used with {@link #ACTION_REBOOT_READY} which indicates if the
+     * device is ready to reboot.
+     * Will be {@code true} if ready to reboot, {@code false} otherwise.
+     * @hide
+     */
+    @SystemApi
+    public static final String EXTRA_IS_READY_TO_REBOOT =
+            "android.scheduling.extra.IS_READY_TO_REBOOT";
 
     /**
      * Key used to communicate between {@link RebootReadinessManager} and the system server,
@@ -224,8 +251,8 @@ public final class RebootReadinessManager {
      * Notifies the RebootReadinessManager that there is a pending update that requires a reboot to
      * be applied.
      *
-     * <p>When the device's reboot-readiness changes, a {@link Intent#ACTION_REBOOT_READY} broadcast
-     * will be sent. The associated extra {@link Intent#EXTRA_IS_READY_TO_REBOOT} will be
+     * <p>When the device's reboot-readiness changes, a {@link #ACTION_REBOOT_READY} broadcast
+     * will be sent. The associated extra {@link #EXTRA_IS_READY_TO_REBOOT} will be
      * {@code true} when the device is ready to reboot, and {@code false} when it is not ready to
      * reboot.
      *
