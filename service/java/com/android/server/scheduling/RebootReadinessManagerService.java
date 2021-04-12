@@ -183,6 +183,16 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         }
     };
 
+    private final AlarmManager.OnAlarmListener mPollStateListener = () -> {
+        synchronized (mLock) {
+            if (!mCanceled) {
+                pollRebootReadinessState();
+            } else {
+                Log.w(TAG, "Received poll state callback while canceled.");
+            }
+        }
+    };
+
     @VisibleForTesting
     RebootReadinessManagerService(Context context) {
         // TODO(b/161353402): Consolidate mHandler and mExecutor
@@ -331,8 +341,10 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                 noteRebootReadinessStateChanged(currentRebootReadiness);
             }
             if (!mCanceled) {
-                mHandler.postDelayed(this::pollRebootReadinessState,
-                        getNextPollingIntervalMs(currentRebootReadiness));
+                mAlarmManager.setExact(AlarmManager.RTC_WAKEUP,
+                        System.currentTimeMillis()
+                                + getNextPollingIntervalMs(currentRebootReadiness),
+                        "poll_reboot_readiness", mPollStateListener, mHandler);
             }
         }
     }
