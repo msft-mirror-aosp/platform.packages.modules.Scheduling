@@ -30,6 +30,7 @@ import android.util.Log;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.annotations.VisibleForTesting;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -80,7 +81,17 @@ final class RebootReadinessLogger {
     @GuardedBy("mLock")
     private boolean mShouldDumpMetrics;
 
+    // Directory for storing reboot readiness metrics. By default, this is the module's DE
+    // data directory, but a different directory may be injected for testing purposes.
+    private final File mDeDir;
+
+    @VisibleForTesting
+    RebootReadinessLogger(File deDir) {
+        mDeDir = deDir;
+    }
+
     RebootReadinessLogger() {
+        mDeDir = ApexEnvironment.getApexEnvironment(MODULE_NAME).getDeviceProtectedDataDir();
     }
 
     /**
@@ -100,9 +111,7 @@ final class RebootReadinessLogger {
             @CurrentTimeMillisLong long readyTime, int timesBlockedByInteractivity,
             int timesBlockedBySubsystems, int timesBlockedByAppActivity) {
         synchronized (mLock) {
-            File deDir = ApexEnvironment.getApexEnvironment(
-                    MODULE_NAME).getDeviceProtectedDataDir();
-            AtomicFile rebootStatsFile = new AtomicFile(new File(deDir, REBOOT_STATS_FILE));
+            AtomicFile rebootStatsFile = new AtomicFile(new File(mDeDir, REBOOT_STATS_FILE));
 
             mStartTime = startTime;
             mReadyTime = readyTime;
@@ -246,12 +255,11 @@ final class RebootReadinessLogger {
         }
     }
 
-
-    private static AtomicFile getRebootStatsFile() {
-        File deDir = ApexEnvironment.getApexEnvironment(MODULE_NAME).getDeviceProtectedDataDir();
-        File file = new File(deDir, REBOOT_STATS_FILE);
+    @VisibleForTesting
+    AtomicFile getRebootStatsFile() {
+        File file = new File(mDeDir, REBOOT_STATS_FILE);
         if (file.exists()) {
-            return new AtomicFile(new File(deDir, REBOOT_STATS_FILE));
+            return new AtomicFile(new File(mDeDir, REBOOT_STATS_FILE));
         } else {
             return null;
         }
@@ -301,6 +309,7 @@ final class RebootReadinessLogger {
 
         private BlockingEntityRecord(int uid) {
             mType = ENTITY_TYPE_APP;
+            mComponentName = "";
             mAppUid = uid;
             mLastMetricLoggedTime = System.currentTimeMillis();
         }
