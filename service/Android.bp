@@ -49,6 +49,7 @@ java_library {
         // TODO(b/161353402): Remove framework dependency when modules-utils expands
         ":framework-cellbroadcast-shared-srcs",
         ":reboot-stats-parser",
+        ":framework-scheduling-sources",
     ],
     min_sdk_version: "current",
     defaults: ["framework-system-server-module-defaults" ],
