@@ -3,5 +3,10 @@
     {
       "name": "CtsRebootReadinessTestCases"
     }
+  ],
+  "postsubmit": [
+    {
+      "name": "RebootReadinessUnitTests"
+    }
   ]
 }
