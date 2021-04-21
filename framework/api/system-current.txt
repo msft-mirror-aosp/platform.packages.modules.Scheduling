@@ -7,6 +7,8 @@ package android.scheduling {
     method @RequiresPermission(android.Manifest.permission.REBOOT) public boolean isReadyToReboot();
     method @RequiresPermission(android.Manifest.permission.REBOOT) public void markRebootPending();
     method @RequiresPermission(android.Manifest.permission.SIGNAL_REBOOT_READINESS) public void removeRequestRebootReadinessStatusListener(@NonNull android.scheduling.RebootReadinessManager.RequestRebootReadinessStatusListener);
+    field public static final String ACTION_REBOOT_READY = "android.scheduling.action.REBOOT_READY";
+    field public static final String EXTRA_IS_READY_TO_REBOOT = "android.scheduling.extra.IS_READY_TO_REBOOT";
   }
 
   public static final class RebootReadinessManager.RebootReadinessStatus {

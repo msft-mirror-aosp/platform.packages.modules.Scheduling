@@ -183,12 +183,26 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         }
     };
 
-    @VisibleForTesting
+    private final AlarmManager.OnAlarmListener mPollStateListener = () -> {
+        synchronized (mLock) {
+            if (!mCanceled) {
+                pollRebootReadinessState();
+            } else {
+                Log.w(TAG, "Received poll state callback while canceled.");
+            }
+        }
+    };
+
     RebootReadinessManagerService(Context context) {
+        this(context, new RebootReadinessLogger());
+    }
+
+    @VisibleForTesting
+    RebootReadinessManagerService(Context context, RebootReadinessLogger logger) {
         // TODO(b/161353402): Consolidate mHandler and mExecutor
         mHandler = new Handler(Looper.getMainLooper());
         mExecutor = new HandlerExecutor(mHandler);
-        mRebootReadinessLogger = new RebootReadinessLogger();
+        mRebootReadinessLogger = logger;
         updateConfigs();
         DeviceConfig.addOnPropertiesChangedListener(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 mExecutor, properties -> updateConfigs());
@@ -282,6 +296,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                 // waiting for broadcasts
                 if (mCallingUidToPackageMap.size() == 0) {
                     mHandler.removeCallbacksAndMessages(null);
+                    mAlarmManager.cancel(mPollStateListener);
                     mCanceled = true;
                     mReadyToReboot = false;
                 }
@@ -331,8 +346,10 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                 noteRebootReadinessStateChanged(currentRebootReadiness);
             }
             if (!mCanceled) {
-                mHandler.postDelayed(this::pollRebootReadinessState,
-                        getNextPollingIntervalMs(currentRebootReadiness));
+                mAlarmManager.setExact(AlarmManager.RTC_WAKEUP,
+                        System.currentTimeMillis()
+                                + getNextPollingIntervalMs(currentRebootReadiness),
+                        "poll_reboot_readiness", mPollStateListener, mHandler);
             }
         }
     }
@@ -357,8 +374,9 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         return true;
     }
 
+    @VisibleForTesting
     @GuardedBy("mLock")
-    private boolean checkSystemComponentsState() {
+    boolean checkSystemComponentsState() {
         if (!mDisableSubsystemsCheck) {
             if (mBlockedByTethering) {
                 return false;
@@ -410,7 +428,8 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         return blockingCallbacks.size() == 0;
     }
 
-    private boolean checkDeviceInteractivity() {
+    @VisibleForTesting
+    boolean checkDeviceInteractivity() {
         final long now = SystemClock.elapsedRealtime();
         synchronized (mLock) {
             return (now - mLastTimeNotInteractiveMs) > mInteractivityThresholdMs;
@@ -421,7 +440,8 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
      * Check for important app activity in the background by querying the running services on the
      * device.
      */
-    private boolean checkBackgroundAppActivity() {
+    @VisibleForTesting
+    boolean checkBackgroundAppActivity() {
         if (mActivityManager != null) {
             final List<RunningServiceInfo> serviceInfos =
                     mActivityManager.getRunningServices(Integer.MAX_VALUE);
@@ -443,8 +463,8 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         synchronized (mLock) {
             Log.i(TAG, "Reboot readiness state changed to " + isReadyToReboot);
             mReadyToReboot = isReadyToReboot;
-            Intent intent = new Intent(Intent.ACTION_REBOOT_READY);
-            intent.putExtra(Intent.EXTRA_IS_READY_TO_REBOOT, isReadyToReboot);
+            Intent intent = new Intent(RebootReadinessManager.ACTION_REBOOT_READY);
+            intent.putExtra(RebootReadinessManager.EXTRA_IS_READY_TO_REBOOT, isReadyToReboot);
 
             // Send state change broadcast to any packages which have a pending update
             for (int i = 0; i < mCallingUidToPackageMap.size(); i++) {
@@ -527,6 +547,13 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         mTimesBlockedByInteractivity = 0;
         mTimesBlockedBySubsystems = 0;
         mTimesBlockedByAppActivity = 0;
+    }
+
+    @VisibleForTesting
+    SparseArray<ArraySet<String>> getCallingPackages() {
+        synchronized (mLock) {
+            return mCallingUidToPackageMap;
+        }
     }
 
     @Override
