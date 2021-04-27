@@ -22,6 +22,8 @@
         <uses-library android:name="android.test.runner" />
     </application>
 
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
     <instrumentation android:name="androidx.test.runner.AndroidJUnitRunner"
                      android:targetPackage="com.android.server.scheduling.tests"
                      android:label="Reboot Readiness unit tests"/>
