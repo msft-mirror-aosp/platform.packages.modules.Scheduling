@@ -276,7 +276,8 @@ public class RebootReadinessManagerTest {
     private void adoptShellPermissions() {
         InstrumentationRegistry.getInstrumentation().getUiAutomation().adoptShellPermissionIdentity(
                 Manifest.permission.REBOOT, Manifest.permission.WRITE_DEVICE_CONFIG,
-                Manifest.permission.SIGNAL_REBOOT_READINESS);
+                Manifest.permission.SIGNAL_REBOOT_READINESS,
+                Manifest.permission.INTERACT_ACROSS_USERS_FULL);
     }
 
     private void dropShellPermissions() {

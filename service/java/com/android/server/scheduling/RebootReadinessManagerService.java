@@ -38,6 +38,7 @@ import android.os.RemoteCallback;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.os.UserHandle;
 import android.provider.DeviceConfig;
 import android.scheduling.IRebootReadinessManager;
 import android.scheduling.IRequestRebootReadinessStatusListener;
@@ -269,6 +270,9 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                 resetMetrics();
                 mHandler.removeCallbacksAndMessages(null);
                 mHandler.post(this::pollRebootReadinessState);
+            } else {
+                sendRebootReadyBroadcast(callingPackage,
+                        Binder.getCallingUserHandle(), mReadyToReboot);
             }
             ArraySet<String> packagesForUid =
                     mCallingUidToPackageMap.get(Binder.getCallingUid(), new ArraySet<>());
@@ -463,17 +467,13 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         synchronized (mLock) {
             Log.i(TAG, "Reboot readiness state changed to " + isReadyToReboot);
             mReadyToReboot = isReadyToReboot;
-            Intent intent = new Intent(RebootReadinessManager.ACTION_REBOOT_READY);
-            intent.putExtra(RebootReadinessManager.EXTRA_IS_READY_TO_REBOOT, isReadyToReboot);
 
             // Send state change broadcast to any packages which have a pending update
             for (int i = 0; i < mCallingUidToPackageMap.size(); i++) {
+                UserHandle user = UserHandle.getUserHandleForUid(mCallingUidToPackageMap.keyAt(i));
                 ArraySet<String> packageNames = mCallingUidToPackageMap.valueAt(i);
                 for (int j = 0; j < packageNames.size(); j++) {
-                    String packageName = packageNames.valueAt(j);
-                    Log.i(TAG, "Sending REBOOT_READY broadcast to package " + packageName);
-                    intent.setPackage(packageName);
-                    mContext.sendBroadcast(intent, Manifest.permission.REBOOT);
+                    sendRebootReadyBroadcast(packageNames.valueAt(j), user, isReadyToReboot);
                 }
             }
             if (mReadyToReboot) {
@@ -483,6 +483,17 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                         mTimesBlockedByAppActivity);
             }
         }
+    }
+
+    @GuardedBy("mLock")
+    private void sendRebootReadyBroadcast(String packageName, UserHandle user,
+            boolean isReadyToReboot) {
+        Log.i(TAG, "Sending REBOOT_READY broadcast to package " + packageName
+                + " for user " + user.getIdentifier());
+        Intent intent = new Intent(RebootReadinessManager.ACTION_REBOOT_READY);
+        intent.putExtra(RebootReadinessManager.EXTRA_IS_READY_TO_REBOOT, isReadyToReboot);
+        intent.setPackage(packageName);
+        mContext.sendBroadcastAsUser(intent, user, Manifest.permission.REBOOT);
     }
 
     private long getNextPollingIntervalMs(boolean isReadyToReady) {
