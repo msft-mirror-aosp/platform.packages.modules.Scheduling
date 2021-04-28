@@ -48,6 +48,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.RemoteCallback;
+import android.os.UserHandle;
 import android.provider.DeviceConfig;
 import android.scheduling.IRequestRebootReadinessStatusListener;
 import android.scheduling.RebootReadinessManager;
@@ -110,6 +111,7 @@ public class RebootReadinessUnitTest {
     private RebootReadinessLogger mLogger;
 
     private static final String TEST_PACKAGE = "test.package";
+    private static final String TEST_PACKAGE2 = "test.package2";
 
     private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
     private static final String PROPERTY_ACTIVE_POLLING_INTERVAL_MS = "active_polling_interval_ms";
@@ -131,7 +133,7 @@ public class RebootReadinessUnitTest {
     private static final int STATE_CHANGE_DELAY = 5000;
 
     @Before
-    public void setup() throws Exception {
+    public void setup() {
         mSession =
                 ExtendedMockito.mockitoSession().initMocks(
                         this)
@@ -141,7 +143,8 @@ public class RebootReadinessUnitTest {
         mMockContext = spy(InstrumentationRegistry.getContext());
         mAlarmManager = spy(mMockContext.getSystemService(AlarmManager.class));
         doNothing().when(mMockContext).enforceCallingPermission(anyString(), anyString());
-        doNothing().when(mMockContext).sendBroadcast(any(Intent.class), anyString());
+        doNothing().when(mMockContext).sendBroadcastAsUser(any(Intent.class), any(UserHandle.class),
+                anyString());
         doReturn(PackageManager.PERMISSION_GRANTED).when(mMockContext)
                 .checkCallingOrSelfPermission(anyString());
 
@@ -188,6 +191,7 @@ public class RebootReadinessUnitTest {
     @After
     public void teardown() {
         mService.cancelPendingReboot(TEST_PACKAGE);
+        mService.cancelPendingReboot(TEST_PACKAGE2);
         mSession.finishMocking();
     }
 
@@ -231,7 +235,8 @@ public class RebootReadinessUnitTest {
 
         // 2 broadcasts should have been sent: one when the device became ready to reboot, and
         // another when it became no longer ready to reboot.
-        verify(mMockContext, times(2)).sendBroadcast(mIntentArgumentCaptor.capture(), anyString());
+        verify(mMockContext, times(2)).sendBroadcastAsUser(mIntentArgumentCaptor.capture(),
+                any(UserHandle.class), anyString());
         List<Intent> intents = mIntentArgumentCaptor.getAllValues();
 
         Intent readyIntent = intents.get(0);
@@ -250,6 +255,27 @@ public class RebootReadinessUnitTest {
         sentExtra = notReadyIntent.getBooleanExtra(
                 RebootReadinessManager.EXTRA_IS_READY_TO_REBOOT, false);
         assertThat(sentExtra).isFalse();
+    }
+
+    /** Test that a second client will receive an immediate broadcast when they register. */
+    @Test
+    public void testSecondClientReceivesBroadcastImmediately() throws Exception {
+        mService.markRebootPending(TEST_PACKAGE);
+        Thread.sleep(STATE_CHANGE_DELAY);
+        assertThat(mService.isReadyToReboot()).isTrue();
+
+        mService.markRebootPending(TEST_PACKAGE2);
+        verify(mMockContext, times(2)).sendBroadcastAsUser(mIntentArgumentCaptor.capture(),
+                any(UserHandle.class), anyString());
+        List<Intent> intents = mIntentArgumentCaptor.getAllValues();
+
+        Intent secondIntent = intents.get(1);
+
+        assertThat(secondIntent.getPackage()).isEqualTo(TEST_PACKAGE2);
+        assertThat(secondIntent.getAction()).isEqualTo(RebootReadinessManager.ACTION_REBOOT_READY);
+        boolean sentExtra = secondIntent.getBooleanExtra(
+                RebootReadinessManager.EXTRA_IS_READY_TO_REBOOT, false);
+        assertThat(sentExtra).isTrue();
     }
 
     @Test
