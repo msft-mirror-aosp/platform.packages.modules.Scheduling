@@ -37,6 +37,7 @@ android_test {
         "libdexmakerjvmtiagent",
         "libstaticjvmtiagent",
     ],
+    compile_multilib: "both",
     min_sdk_version: "current",
     target_sdk_version: "current",
     test_suites: ["general-tests", "mts-scheduling"],
