@@ -89,7 +89,6 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     private static final String TEST_CALLBACK_PREFIX = "TESTCOMPONENT";
 
     // DeviceConfig properties
-    private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
     private static final String PROPERTY_ACTIVE_POLLING_INTERVAL_MS = "active_polling_interval_ms";
     private static final String PROPERTY_INTERACTIVITY_THRESHOLD_MS = "interactivity_threshold_ms";
     private static final String PROPERTY_DISABLE_INTERACTIVITY_CHECK =
@@ -101,7 +100,6 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             "logging_blocking_entity_threshold_ms";
 
 
-    private static final long DEFAULT_POLLING_INTERVAL_WHILE_IDLE_MS = TimeUnit.MINUTES.toMillis(1);
     private static final long DEFAULT_POLLING_INTERVAL_WHILE_ACTIVE_MS =
             TimeUnit.MINUTES.toMillis(5);
     private static final long DEFAULT_INTERACTIVITY_THRESHOLD_MS = TimeUnit.MINUTES.toMillis(30);
@@ -111,9 +109,6 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
 
     @GuardedBy("mLock")
     private long mActivePollingIntervalMs = DEFAULT_POLLING_INTERVAL_WHILE_ACTIVE_MS;
-
-    @GuardedBy("mLock")
-    private long mIdlePollingIntervalMs = DEFAULT_POLLING_INTERVAL_WHILE_IDLE_MS;
 
     @GuardedBy("mLock")
     private long mInteractivityThresholdMs = DEFAULT_INTERACTIVITY_THRESHOLD_MS;
@@ -349,10 +344,10 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             if (previousRebootReadiness != currentRebootReadiness) {
                 noteRebootReadinessStateChanged(currentRebootReadiness);
             }
-            if (!mCanceled) {
+            if (!mCanceled && !currentRebootReadiness) {
                 mAlarmManager.setExact(AlarmManager.RTC_WAKEUP,
                         System.currentTimeMillis()
-                                + getNextPollingIntervalMs(currentRebootReadiness),
+                                + mActivePollingIntervalMs,
                         "poll_reboot_readiness", mPollStateListener, mHandler);
             }
         }
@@ -496,23 +491,8 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         mContext.sendBroadcastAsUser(intent, user, Manifest.permission.REBOOT);
     }
 
-    private long getNextPollingIntervalMs(boolean isReadyToReady) {
-        // While ready to reboot, it is assumed that a reboot is imminent. It may be useful to poll
-        // the device more frequently in this state, in case the device suddenly becomes active and
-        // the caller needs to be notified.
-        synchronized (mLock) {
-            if (isReadyToReady) {
-                return mIdlePollingIntervalMs;
-            } else {
-                return mActivePollingIntervalMs;
-            }
-        }
-    }
-
     private void updateConfigs() {
         synchronized (mLock) {
-            mIdlePollingIntervalMs = DeviceConfig.getLong(DeviceConfig.NAMESPACE_REBOOT_READINESS,
-                    PROPERTY_IDLE_POLLING_INTERVAL_MS, DEFAULT_POLLING_INTERVAL_WHILE_IDLE_MS);
             mActivePollingIntervalMs = DeviceConfig.getLong(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                     PROPERTY_ACTIVE_POLLING_INTERVAL_MS, DEFAULT_POLLING_INTERVAL_WHILE_ACTIVE_MS);
             mInteractivityThresholdMs = DeviceConfig.getLong(
@@ -541,6 +521,10 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         synchronized (mLock) {
             if (isInteractive) {
                 mLastTimeNotInteractiveMs = Long.MAX_VALUE;
+                if (!mCanceled && mReadyToReboot) {
+                    Log.i(TAG, "Device became interactive while reboot-ready");
+                    pollRebootReadinessState();
+                }
             } else {
                 mLastTimeNotInteractiveMs = SystemClock.elapsedRealtime();
             }

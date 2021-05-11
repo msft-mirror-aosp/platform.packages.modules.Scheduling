@@ -35,7 +35,6 @@ import java.util.concurrent.TimeUnit;
 
 public class RebootReadinessTest {
 
-    private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
     private static final String PROPERTY_ACTIVE_POLLING_INTERVAL_MS = "active_polling_interval_ms";
     private static final String PROPERTY_DISABLE_INTERACTIVITY_CHECK =
             "disable_interactivity_check";
@@ -74,8 +73,6 @@ public class RebootReadinessTest {
                 Manifest.permission.WRITE_DEVICE_CONFIG);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_ACTIVE_POLLING_INTERVAL_MS, "1000", false);
-        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
-                PROPERTY_IDLE_POLLING_INTERVAL_MS, "1000", false);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true", false);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
