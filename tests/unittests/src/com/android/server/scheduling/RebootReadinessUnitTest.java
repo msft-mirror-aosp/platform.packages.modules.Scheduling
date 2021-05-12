@@ -113,7 +113,6 @@ public class RebootReadinessUnitTest {
     private static final String TEST_PACKAGE = "test.package";
     private static final String TEST_PACKAGE2 = "test.package2";
 
-    private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
     private static final String PROPERTY_ACTIVE_POLLING_INTERVAL_MS = "active_polling_interval_ms";
     private static final String PROPERTY_DISABLE_INTERACTIVITY_CHECK =
             "disable_interactivity_check";
@@ -171,8 +170,6 @@ public class RebootReadinessUnitTest {
         // Checks may only be scheduled every 5000ms due to AlarmManager scheduling restrictions.
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_ACTIVE_POLLING_INTERVAL_MS, "5000", false);
-        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
-                PROPERTY_IDLE_POLLING_INTERVAL_MS, "5000", false);
 
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true", false);
