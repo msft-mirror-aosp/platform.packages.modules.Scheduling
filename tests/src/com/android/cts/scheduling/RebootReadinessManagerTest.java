@@ -76,7 +76,6 @@ public class RebootReadinessManagerTest {
     private static final RequestRebootReadinessStatusListener READY_CALLBACK = new RebootCallback(
             true, 0, TEST_CALLBACK_PREFIX + ": non-blocking component");
 
-    private static final String PROPERTY_IDLE_POLLING_INTERVAL_MS = "idle_polling_interval_ms";
     private static final String PROPERTY_ACTIVE_POLLING_INTERVAL_MS = "active_polling_interval_ms";
     private static final String PROPERTY_DISABLE_INTERACTIVITY_CHECK =
             "disable_interactivity_check";
@@ -103,8 +102,6 @@ public class RebootReadinessManagerTest {
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_ACTIVE_POLLING_INTERVAL_MS, "1000", false);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
-                PROPERTY_IDLE_POLLING_INTERVAL_MS, "1000", false);
-        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true", false);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_DISABLE_APP_ACTIVITY_CHECK, "true", false);
@@ -128,13 +125,13 @@ public class RebootReadinessManagerTest {
     @Test
     public void testRegisterAndUnregisterCallback() throws Exception {
         assertThat(isReadyToReboot()).isTrue();
+        mRebootReadinessManager.cancelPendingReboot();
+
         mRebootReadinessManager.addRequestRebootReadinessStatusListener(
                 sHandlerExecutor, BLOCKING_CALLBACK);
-        // Sleep for the time period between reboot readiness checks
-        Thread.sleep(2000);
         assertThat(isReadyToReboot()).isFalse();
         mRebootReadinessManager.removeRequestRebootReadinessStatusListener(BLOCKING_CALLBACK);
-        Thread.sleep(2000);
+        mRebootReadinessManager.cancelPendingReboot();
         assertThat(isReadyToReboot()).isTrue();
     }
 
@@ -142,15 +139,13 @@ public class RebootReadinessManagerTest {
     public void testCallbackReadyToReboot() throws Exception {
         mRebootReadinessManager.addRequestRebootReadinessStatusListener(
                 sHandlerExecutor, READY_CALLBACK);
-        CountDownLatch latch = new CountDownLatch(2);
+        CountDownLatch latch = new CountDownLatch(1);
         final BroadcastReceiver receiver = new BroadcastReceiver() {
-            boolean mExpectedExtra = true;
             @Override
             public void onReceive(Context context, Intent intent) {
                 boolean extra = intent.getBooleanExtra(
                         RebootReadinessManager.EXTRA_IS_READY_TO_REBOOT, false);
-                assertThat(extra).isEqualTo(mExpectedExtra);
-                mExpectedExtra = !mExpectedExtra;
+                assertThat(extra).isEqualTo(true);
                 latch.countDown();
             }
         };
@@ -159,9 +154,6 @@ public class RebootReadinessManagerTest {
         mRebootReadinessManager.addRequestRebootReadinessStatusListener(
                 sHandlerExecutor, READY_CALLBACK);
         assertThat(isReadyToReboot()).isTrue();
-        mRebootReadinessManager.addRequestRebootReadinessStatusListener(
-                sHandlerExecutor, BLOCKING_CALLBACK);
-        assertThat(latch.await(1, TimeUnit.MINUTES)).isTrue();
         InstrumentationRegistry.getContext().unregisterReceiver(receiver);
     }
 
@@ -172,8 +164,7 @@ public class RebootReadinessManagerTest {
                 sHandlerExecutor, READY_CALLBACK);
         mRebootReadinessManager.addRequestRebootReadinessStatusListener(
                 sHandlerExecutor, BLOCKING_CALLBACK);
-        // Sleep for the time period between reboot readiness checks
-        Thread.sleep(2000);
+        mRebootReadinessManager.cancelPendingReboot();
         assertThat(isReadyToReboot()).isFalse();
     }
 
