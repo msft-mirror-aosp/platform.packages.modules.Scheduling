@@ -31,11 +31,19 @@ filegroup {
     srcs: ["jarjar-rules.txt"],
 }
 
+// Encapsulate the contributions made by the com.android.scheduling to the bootclasspath.
+bootclasspath_fragment {
+    name: "com.android.scheduling-bootclasspath-fragment",
+    contents: ["framework-scheduling"],
+    apex_available: ["com.android.scheduling"],
+}
+
 apex {
     name: "com.android.scheduling",
     updatable: true,
     min_sdk_version: "current",
-    java_libs: ["framework-scheduling", "service-scheduling"],
+    bootclasspath_fragments: ["com.android.scheduling-bootclasspath-fragment"],
+    java_libs: ["service-scheduling"],
     manifest: "manifest.json",
     file_contexts: ":com.android.scheduling-file_contexts",
     key: "com.android.scheduling.key",
