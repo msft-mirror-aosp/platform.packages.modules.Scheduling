@@ -44,7 +44,13 @@ apex {
     min_sdk_version: "current",
     bootclasspath_fragments: ["com.android.scheduling-bootclasspath-fragment"],
     java_libs: ["service-scheduling"],
+    prebuilts: ["current_sdkinfo"],
     manifest: "manifest.json",
     file_contexts: ":com.android.scheduling-file_contexts",
     key: "com.android.scheduling.key",
+}
+
+sdk {
+    name: "scheduling-sdk",
+    bootclasspath_fragments: ["com.android.scheduling-bootclasspath-fragment"],
 }
