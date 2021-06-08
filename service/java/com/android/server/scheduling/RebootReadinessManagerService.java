@@ -476,6 +476,8 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                         mPollingStartTimeMs, System.currentTimeMillis(),
                         mTimesBlockedByInteractivity, mTimesBlockedBySubsystems,
                         mTimesBlockedByAppActivity);
+            } else {
+                mRebootReadinessLogger.deleteLoggingInformation();
             }
         }
     }
