@@ -30,6 +30,7 @@ import static com.google.common.truth.Truth.assertThat;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 
@@ -416,6 +417,30 @@ public class RebootReadinessUnitTest {
         mLogger.writePostRebootMetrics();
         verify(() -> SchedulingStatsLog.write(eq(SchedulingStatsLog.UNATTENDED_REBOOT_OCCURRED),
                 eq(1000L), anyLong(), eq(0), eq(0), eq(0)));
+    }
+
+    /**
+     * Test that no metrics are logged if the device became not ready to reboot before rebooting.
+     */
+    @Test
+    public void testMetricsClearedWhenNotReadyToReboot() throws Exception {
+        mService.markRebootPending(TEST_PACKAGE);
+        Thread.sleep(STATE_CHANGE_DELAY);
+        assertThat(mService.isReadyToReboot()).isTrue();
+
+        // Make device interactive and allow the device to become not reboot-ready for a while.
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_DISABLE_INTERACTIVITY_CHECK, "false", false);
+        Thread.sleep(DEVICE_CONFIG_DELAY);
+        setScreenState(true);
+        Thread.sleep(STATE_CHANGE_DELAY);
+        assertThat(mService.isReadyToReboot()).isFalse();
+
+        // The device has become not ready to reboot, therefore no metrics should be logged.
+        mLogger.readMetricsPostReboot();
+        mLogger.writePostRebootMetrics();
+        verify(() -> SchedulingStatsLog.write(eq(SchedulingStatsLog.UNATTENDED_REBOOT_OCCURRED),
+                anyLong(), anyLong(), anyInt(), anyInt(), anyInt()), never());
     }
 
     /**
