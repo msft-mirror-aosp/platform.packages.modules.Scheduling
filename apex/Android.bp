@@ -49,3 +49,8 @@ apex {
     file_contexts: ":com.android.scheduling-file_contexts",
     key: "com.android.scheduling.key",
 }
+
+sdk {
+    name: "scheduling-sdk",
+    bootclasspath_fragments: ["com.android.scheduling-bootclasspath-fragment"],
+}

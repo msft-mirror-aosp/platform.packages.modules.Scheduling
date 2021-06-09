@@ -140,6 +140,20 @@ final class RebootReadinessLogger {
     }
 
     /**
+     * Deletes any information that would have been logged post-reboot. This is called when
+     * the device becomes not ready to reboot.
+     */
+    void deleteLoggingInformation() {
+        synchronized (mLock) {
+            AtomicFile rebootStatsFile = getRebootStatsFile();
+            if (rebootStatsFile != null) {
+                rebootStatsFile.delete();
+                mNeedsToLogMetrics = false;
+            }
+        }
+    }
+
+    /**
      * If any metrics were stored before the last reboot, reads them into local variables. These
      * local variables will be logged when the device is first unlocked after reboot.
      */
