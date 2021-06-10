@@ -33,6 +33,7 @@ import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerExecutor;
 import android.os.Looper;
+import android.os.ParcelFileDescriptor;
 import android.os.PowerManager;
 import android.os.RemoteCallback;
 import android.os.RemoteCallbackList;
@@ -190,7 +191,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     };
 
     RebootReadinessManagerService(Context context) {
-        this(context, new RebootReadinessLogger());
+        this(context, new RebootReadinessLogger(context));
     }
 
     @VisibleForTesting
@@ -233,6 +234,13 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         }
         mHandler.post(mRebootReadinessLogger::readMetricsPostReboot);
         mContext = context;
+    }
+
+    @Override
+    public int handleShellCommand(ParcelFileDescriptor in, ParcelFileDescriptor out,
+            ParcelFileDescriptor err, String[] args) {
+        return new RebootReadinessShellCommand(this, mContext).exec(this, in.getFileDescriptor(),
+                out.getFileDescriptor(), err.getFileDescriptor(), args);
     }
 
     /**
@@ -285,6 +293,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             ArraySet<String> packagesForUid =
                     mCallingUidToPackageMap.get(callingUid, new ArraySet<>());
             if (packagesForUid.contains(callingPackage)) {
+                Log.i(TAG, "Canceling reboot readiness checks for package: " + callingPackage);
                 packagesForUid.remove(callingPackage);
                 if (packagesForUid.size() == 0) {
                     // No remaining clients exist for this calling uid
@@ -357,6 +366,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
     private boolean getRebootReadinessLocked() {
         if (!(mDisableInteractivityCheck || checkDeviceInteractivity())) {
             mTimesBlockedByInteractivity++;
+            Log.v(TAG, "Reboot blocked by device interactivity");
             return false;
         }
 
@@ -424,7 +434,11 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
         mCallbacks.finishBroadcast();
         mRebootReadinessLogger.maybeLogLongBlockingComponents(blockingCallbackNames,
                 mLoggingBlockingEntityThresholdMs);
-        return blockingCallbacks.size() == 0;
+        if (blockingCallbacks.size() > 0) {
+            Log.v(TAG, "Reboot blocked by subsystems: " + String.join(",", blockingCallbackNames));
+            return false;
+        }
+        return true;
     }
 
     @VisibleForTesting
@@ -453,7 +467,11 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
             }
             mRebootReadinessLogger.maybeLogLongBlockingApps(blockingUids,
                     mLoggingBlockingEntityThresholdMs);
-            return blockingUids.size() == 0;
+            if (blockingUids.size() > 0) {
+                Log.v(TAG, "Reboot blocked by app uids: " + blockingUids.toString());
+                return false;
+            }
+            return true;
         }
         return false;
     }
@@ -574,5 +592,15 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                 pw.println("Current reboot readiness state: " + mReadyToReboot);
             }
         }
+    }
+
+    /** Writes information about any UIDs which are blocking the reboot. */
+    void writeBlockingUids(PrintWriter pw) {
+        mRebootReadinessLogger.writeBlockingUids(pw);
+    }
+
+    /** Writes information about any subsystems which are blocking the reboot. */
+    void writeBlockingSubsystems(PrintWriter pw) {
+        mRebootReadinessLogger.writeBlockingSubsystems(pw);
     }
 }
