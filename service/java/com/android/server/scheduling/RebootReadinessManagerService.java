@@ -494,6 +494,20 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                         mPollingStartTimeMs, System.currentTimeMillis(),
                         mTimesBlockedByInteractivity, mTimesBlockedBySubsystems,
                         mTimesBlockedByAppActivity);
+
+                AlarmManager.AlarmClockInfo alarmClockInfo = mAlarmManager.getNextAlarmClock();
+                if (alarmClockInfo != null) {
+                    // Schedule a state check before the next alarm clock is triggered. This check
+                    // is triggered within the alarm clock threshold window (plus a small tolerance)
+                    // to ensure that this alarm clock will block the reboot at that time.
+                    long stateCheckTriggerTime = alarmClockInfo.getTriggerTime()
+                            - (mAlarmClockThresholdMs - TimeUnit.SECONDS.toMillis(1));
+                    if (stateCheckTriggerTime > System.currentTimeMillis()) {
+                        mAlarmManager.setExact(AlarmManager.RTC_WAKEUP,
+                                stateCheckTriggerTime, "poll_reboot_readiness",
+                                mPollStateListener, mHandler);
+                    }
+                }
             } else {
                 mRebootReadinessLogger.deleteLoggingInformation();
             }
