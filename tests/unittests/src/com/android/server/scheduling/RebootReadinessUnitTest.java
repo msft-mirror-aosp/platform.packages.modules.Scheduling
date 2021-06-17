@@ -453,6 +453,30 @@ public class RebootReadinessUnitTest {
     }
 
     /**
+     * Test that a pending alarm clock will cause the reboot readiness state to be checked before
+     * the alarm triggers.
+     */
+    @Test
+    public void testAlarmClockCheckWhileReadyToReboot() throws Exception {
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_DISABLE_SUBSYSTEMS_CHECK, "false", false);
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                PROPERTY_ALARM_CLOCK_THRESHOLD_MS, Long.toString(5000), false);
+        Thread.sleep(DEVICE_CONFIG_DELAY);
+
+        // Alarm clock is scheduled for 6 seconds from now. The device will initially be ready
+        // to reboot, but another check will be scheduled before the alarm triggers, causing the
+        // device to no longer be ready to reboot.
+        AlarmManager.AlarmClockInfo alarm = new AlarmManager.AlarmClockInfo(
+                System.currentTimeMillis() + 6000, null);
+        when(mAlarmManager.getNextAlarmClock()).thenReturn(alarm);
+        mService.markRebootPending(TEST_PACKAGE);
+        assertThat(mService.isReadyToReboot()).isTrue();
+        Thread.sleep(STATE_CHANGE_DELAY);
+        assertThat(mService.isReadyToReboot()).isFalse();
+    }
+
+    /**
      * Test that reboot readiness checks happen for the duration supplied by the timeout flag.
      */
     @Test
