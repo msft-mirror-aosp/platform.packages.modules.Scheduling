@@ -306,6 +306,11 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                     mHandler.removeCallbacksAndMessages(null);
                     mAlarmManager.cancel(mPollStateListener);
                     mCanceled = true;
+                    // Delete any logging information if the device is ready to reboot, since an
+                    // unattended reboot should not take place if the checks are cancelled.
+                    if (mReadyToReboot) {
+                        mRebootReadinessLogger.deleteLoggingInformation();
+                    }
                     mReadyToReboot = false;
                 }
             } else {
@@ -509,7 +514,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                     }
                 }
             } else {
-                mRebootReadinessLogger.deleteLoggingInformation();
+                mRebootReadinessLogger.writeAfterNotRebootReadyBroadcast();
             }
         }
     }
