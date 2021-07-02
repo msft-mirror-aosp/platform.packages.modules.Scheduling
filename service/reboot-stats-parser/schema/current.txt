@@ -5,11 +5,13 @@ package com.android.server.scheduling {
     ctor public RebootStats();
     method public long getReadyTimeMs();
     method public long getStartTimeMs();
+    method public long getTimeUntilNextInteractionMs();
     method public int getTimesBlockedByAppActivity();
     method public int getTimesBlockedByInteractivity();
     method public int getTimesBlockedBySubsystems();
     method public void setReadyTimeMs(long);
     method public void setStartTimeMs(long);
+    method public void setTimeUntilNextInteractionMs(long);
     method public void setTimesBlockedByAppActivity(int);
     method public void setTimesBlockedByInteractivity(int);
     method public void setTimesBlockedBySubsystems(int);
