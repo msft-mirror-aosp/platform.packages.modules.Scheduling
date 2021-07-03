@@ -24,6 +24,7 @@
                 <xsd:element name="timesBlockedByInteractivity" type="xsd:int"/>
                 <xsd:element name="timesBlockedByAppActivity" type="xsd:int"/>
                 <xsd:element name="timesBlockedBySubsystems" type="xsd:int"/>
+                <xsd:element name="timeUntilNextInteractionMs" type="xsd:long"/>
             </xsd:sequence>
         </xsd:complexType>
     </xsd:element>
