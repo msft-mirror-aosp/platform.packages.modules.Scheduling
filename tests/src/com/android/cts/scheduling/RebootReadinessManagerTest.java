@@ -36,7 +36,6 @@ import androidx.test.InstrumentationRegistry;
 
 import org.junit.After;
 import org.junit.AfterClass;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -91,13 +90,9 @@ public class RebootReadinessManagerTest {
     private static HandlerExecutor sHandlerExecutor;
 
     @BeforeClass
-    public static void setupClass() {
+    public static void setupClass() throws Exception {
         sThread.start();
         sHandlerExecutor = new HandlerExecutor(sThread.getThreadHandler());
-    }
-
-    @Before
-    public void setup() {
         adoptShellPermissions();
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_ACTIVE_POLLING_INTERVAL_MS, "1000", false);
@@ -107,6 +102,8 @@ public class RebootReadinessManagerTest {
                 PROPERTY_DISABLE_APP_ACTIVITY_CHECK, "true", false);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_DISABLE_SUBSYSTEMS_CHECK, "true", false);
+        // Small delay to allow DeviceConfig changes to propagate.
+        Thread.sleep(1000);
     }
 
     @After
@@ -114,12 +111,12 @@ public class RebootReadinessManagerTest {
         mRebootReadinessManager.removeRequestRebootReadinessStatusListener(READY_CALLBACK);
         mRebootReadinessManager.removeRequestRebootReadinessStatusListener(BLOCKING_CALLBACK);
         mRebootReadinessManager.cancelPendingReboot();
-        dropShellPermissions();
     }
 
     @AfterClass
     public static void teardownClass() {
         sThread.quitSafely();
+        dropShellPermissions();
     }
 
     @Test
@@ -264,14 +261,14 @@ public class RebootReadinessManagerTest {
         return mRebootReadinessManager.isReadyToReboot();
     }
 
-    private void adoptShellPermissions() {
+    private static void adoptShellPermissions() {
         InstrumentationRegistry.getInstrumentation().getUiAutomation().adoptShellPermissionIdentity(
                 Manifest.permission.REBOOT, Manifest.permission.WRITE_DEVICE_CONFIG,
                 Manifest.permission.SIGNAL_REBOOT_READINESS,
                 Manifest.permission.INTERACT_ACROSS_USERS_FULL);
     }
 
-    private void dropShellPermissions() {
+    private static void dropShellPermissions() {
         InstrumentationRegistry
                 .getInstrumentation().getUiAutomation().dropShellPermissionIdentity();
     }
