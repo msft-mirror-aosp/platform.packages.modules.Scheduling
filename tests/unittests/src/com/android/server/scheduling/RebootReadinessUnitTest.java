@@ -30,7 +30,6 @@ import static com.google.common.truth.Truth.assertThat;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 
@@ -111,6 +110,9 @@ public class RebootReadinessUnitTest {
 
     @Captor
     private ArgumentCaptor<Integer> mIntCaptor;
+
+    @Captor
+    private ArgumentCaptor<Long> mLongCaptor;
 
 
     private MockitoSession mSession;
@@ -425,14 +427,15 @@ public class RebootReadinessUnitTest {
         mLogger.readMetricsPostReboot();
         mLogger.writePostRebootMetrics();
         verify(() -> SchedulingStatsLog.write(eq(SchedulingStatsLog.UNATTENDED_REBOOT_OCCURRED),
-                eq(1000L), anyLong(), eq(0), eq(0), eq(0)));
+                eq(1000L), anyLong(), eq(0), eq(0), eq(0), anyLong()));
     }
 
     /**
-     * Test that no metrics are logged if the device became not ready to reboot before rebooting.
+     * Test that logging information is correctly written in the case that the device becomes not
+     * ready to reboot.
      */
     @Test
-    public void testMetricsClearedWhenNotReadyToReboot() throws Exception {
+    public void testMetricsLoggedWhenNotReadyToReboot() throws Exception {
         mService.markRebootPending(TEST_PACKAGE);
         Thread.sleep(STATE_CHANGE_DELAY);
         assertThat(mService.isReadyToReboot()).isTrue();
@@ -448,8 +451,13 @@ public class RebootReadinessUnitTest {
         // The device has become not ready to reboot, therefore no metrics should be logged.
         mLogger.readMetricsPostReboot();
         mLogger.writePostRebootMetrics();
+
+        // Verify that the time_to_next_interaction_millis field is correctly populated.
         verify(() -> SchedulingStatsLog.write(eq(SchedulingStatsLog.UNATTENDED_REBOOT_OCCURRED),
-                anyLong(), anyLong(), anyInt(), anyInt(), anyInt()), never());
+                anyLong(), anyLong(), anyInt(), anyInt(),
+                anyInt(), mLongCaptor.capture()), times(1));
+        assertThat(mLongCaptor.getValue()).isGreaterThan(STATE_CHANGE_DELAY + DEVICE_CONFIG_DELAY);
+        assertThat(mLongCaptor.getValue()).isLessThan(TimeUnit.MINUTES.toMillis(1));
     }
 
     /**
