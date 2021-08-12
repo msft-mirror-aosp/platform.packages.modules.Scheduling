@@ -20,5 +20,6 @@ xsd_config {
     name: "reboot-stats-parser",
     srcs: ["reboot_stats_manifest.xsd"],
     package_name: "com.android.server.scheduling",
+    api_dir: "schema",
     gen_writer: true,
 }
