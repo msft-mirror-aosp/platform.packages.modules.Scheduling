@@ -78,6 +78,9 @@ final class RebootReadinessLogger {
     private int mTimesBlockedByAppActivity;
 
     @GuardedBy("mLock")
+    private long mTimeUntilNextInteractionMs;
+
+    @GuardedBy("mLock")
     private boolean mNeedsToLogMetrics;
 
     @GuardedBy("mLock")
@@ -136,16 +139,7 @@ final class RebootReadinessLogger {
             rebootStats.setTimesBlockedByInteractivity(timesBlockedByInteractivity);
             rebootStats.setTimesBlockedBySubsystems(timesBlockedBySubsystems);
             rebootStats.setTimesBlockedByAppActivity(timesBlockedByAppActivity);
-            try (
-                FileOutputStream stream = rebootStatsFile.startWrite()
-            ) {
-                XmlWriter writer = new XmlWriter(new PrintWriter(stream));
-                XmlWriter.write(writer, rebootStats);
-                writer.close();
-                rebootStatsFile.finishWrite(stream);
-            } catch (Exception e) {
-                Log.e(TAG, "Could not write reboot readiness stats: " + e);
-            }
+            writeRebootStatsToFile(rebootStats, rebootStatsFile);
         }
     }
 
@@ -164,6 +158,31 @@ final class RebootReadinessLogger {
     }
 
     /**
+     * Amend logging file when the device becomes not ready to reboot. If a logging file exists,
+     * add information about the time between the device becoming ready to reboot and subsequently
+     * not ready to reboot.
+     */
+    void writeAfterNotRebootReadyBroadcast() {
+        synchronized (mLock) {
+            AtomicFile rebootStatsFile = getRebootStatsFile();
+            if (rebootStatsFile != null) {
+                RebootStats rebootStats;
+                try (FileInputStream stream = rebootStatsFile.openRead()) {
+                    rebootStats = XmlParser.read(stream);
+                } catch (Exception e) {
+                    Log.e(TAG, "Could not read reboot readiness stats: " + e);
+                    return;
+                }
+
+                mTimeUntilNextInteractionMs = System.currentTimeMillis() - mReadyTime;
+                rebootStats.setTimeUntilNextInteractionMs(mTimeUntilNextInteractionMs);
+                writeRebootStatsToFile(rebootStats, rebootStatsFile);
+            }
+
+        }
+    }
+
+    /**
      * If any metrics were stored before the last reboot, reads them into local variables. These
      * local variables will be logged when the device is first unlocked after reboot.
      */
@@ -178,6 +197,9 @@ final class RebootReadinessLogger {
                     mTimesBlockedByInteractivity = rebootStats.getTimesBlockedByInteractivity();
                     mTimesBlockedBySubsystems = rebootStats.getTimesBlockedBySubsystems();
                     mTimesBlockedByAppActivity = rebootStats.getTimesBlockedByAppActivity();
+                    if (rebootStats.hasTimeUntilNextInteractionMs()) {
+                        mTimeUntilNextInteractionMs = rebootStats.getTimeUntilNextInteractionMs();
+                    }
                     mNeedsToLogMetrics = true;
                 } catch (Exception e) {
                     Log.e(TAG, "Could not read reboot readiness stats: " + e);
@@ -198,18 +220,24 @@ final class RebootReadinessLogger {
                 mNeedsToLogMetrics = false;
                 long timeToUnlockMs = SystemClock.elapsedRealtime();
                 long timeToRebootReadyMs = mReadyTime - mStartTime;
+                long timeToNextInteractionMs = System.currentTimeMillis() - mReadyTime;
+                if (mTimeUntilNextInteractionMs != 0) {
+                    timeToNextInteractionMs = mTimeUntilNextInteractionMs;
+                }
                 Log.i(TAG, "UnattendedRebootOccurred"
                         + " rebootReadyMs=" + timeToRebootReadyMs
                         + " timeUntilFirstUnlockMs=" + timeToUnlockMs
                         + " blockedByInteractivity=" + mTimesBlockedByInteractivity
                         + " blockedBySubsystems=" + mTimesBlockedBySubsystems
-                        + " blockedByAppActivity=" + mTimesBlockedByAppActivity);
+                        + " blockedByAppActivity=" + mTimesBlockedByAppActivity
+                        + " timeToNextInteractionMs=" + timeToNextInteractionMs);
                 SchedulingStatsLog.write(SchedulingStatsLog.UNATTENDED_REBOOT_OCCURRED,
                         timeToRebootReadyMs,
                         timeToUnlockMs,
                         mTimesBlockedByAppActivity,
                         mTimesBlockedBySubsystems,
-                        mTimesBlockedByInteractivity);
+                        mTimesBlockedByInteractivity,
+                        timeToNextInteractionMs);
                 mShouldDumpMetrics = true;
             }
         }
@@ -309,6 +337,17 @@ final class RebootReadinessLogger {
         }
     }
 
+    private void writeRebootStatsToFile(RebootStats rebootStats, AtomicFile rebootStatsFile) {
+        try (FileOutputStream stream = rebootStatsFile.startWrite()) {
+            XmlWriter writer = new XmlWriter(new PrintWriter(stream));
+            XmlWriter.write(writer, rebootStats);
+            writer.close();
+            rebootStatsFile.finishWrite(stream);
+        } catch (Exception e) {
+            Log.e(TAG, "Could not write reboot readiness stats: " + e);
+        }
+    }
+
     void dump(PrintWriter pw) {
         synchronized (mLock) {
             if (mBlockingComponents.size() > 0) {
@@ -326,6 +365,7 @@ final class RebootReadinessLogger {
                 pw.println("    Times blocked by interactivity " + mTimesBlockedByInteractivity);
                 pw.println("    Times blocked by subsystems " + mTimesBlockedBySubsystems);
                 pw.println("    Times blocked by app activity " + mTimesBlockedByAppActivity);
+                pw.println("    Time until next interaction " + mTimeUntilNextInteractionMs);
             }
         }
     }
