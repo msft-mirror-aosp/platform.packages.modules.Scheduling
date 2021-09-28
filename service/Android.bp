@@ -59,7 +59,8 @@ java_library {
         "unsupportedappusage",
     ],
     static_libs: [
-        "modules-utils-os",
+        "modules-utils-handlerexecutor",
+        "modules-utils-shell-command-handler",
         "scheduling-statsd",
     ],
     jarjar_rules: ":scheduling-jarjar-rules",
