@@ -67,4 +67,5 @@ java_library {
     apex_available: [
         "com.android.scheduling",
     ],
+    installable: true,
 }
