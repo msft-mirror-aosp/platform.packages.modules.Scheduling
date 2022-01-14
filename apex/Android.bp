@@ -61,11 +61,12 @@ systemserverclasspath_fragment {
 apex {
     name: "com.android.scheduling",
     updatable: true,
-    min_sdk_version: "current",
+    min_sdk_version: "S",
     bootclasspath_fragments: ["com.android.scheduling-bootclasspath-fragment"],
     systemserverclasspath_fragments: ["com.android.scheduling-systemserverclasspath-fragment"],
     prebuilts: ["current_sdkinfo"],
     manifest: "manifest.json",
+    androidManifest: "AndroidManifest.xml",
     file_contexts: ":com.android.scheduling-file_contexts",
     key: "com.android.scheduling.key",
 }
