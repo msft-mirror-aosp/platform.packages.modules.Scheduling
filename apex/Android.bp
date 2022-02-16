@@ -52,21 +52,14 @@ bootclasspath_fragment {
     ],
 }
 
-systemserverclasspath_fragment {
-    name: "com.android.scheduling-systemserverclasspath-fragment",
-    standalone_contents: ["service-scheduling"],
-    apex_available: ["com.android.scheduling"],
-}
-
 apex {
     name: "com.android.scheduling",
     updatable: true,
-    min_sdk_version: "S",
+    min_sdk_version: "current",
     bootclasspath_fragments: ["com.android.scheduling-bootclasspath-fragment"],
-    systemserverclasspath_fragments: ["com.android.scheduling-systemserverclasspath-fragment"],
+    java_libs: ["service-scheduling"],
     prebuilts: ["current_sdkinfo"],
     manifest: "manifest.json",
-    androidManifest: "AndroidManifest.xml",
     file_contexts: ":com.android.scheduling-file_contexts",
     key: "com.android.scheduling.key",
 }
@@ -74,5 +67,4 @@ apex {
 sdk {
     name: "scheduling-sdk",
     bootclasspath_fragments: ["com.android.scheduling-bootclasspath-fragment"],
-    systemserverclasspath_fragments: ["com.android.scheduling-systemserverclasspath-fragment"],
 }
