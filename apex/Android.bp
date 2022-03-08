@@ -60,8 +60,7 @@ systemserverclasspath_fragment {
 
 apex {
     name: "com.android.scheduling",
-    updatable: true,
-    min_sdk_version: "current",
+    defaults: ["s-launched-apex-module"],
     bootclasspath_fragments: ["com.android.scheduling-bootclasspath-fragment"],
     systemserverclasspath_fragments: ["com.android.scheduling-systemserverclasspath-fragment"],
     prebuilts: ["current_sdkinfo"],
