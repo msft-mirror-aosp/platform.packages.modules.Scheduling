@@ -31,7 +31,6 @@ import android.net.TetheringManager;
 import android.net.TetheringManager.TetheringEventCallback;
 import android.os.Binder;
 import android.os.Handler;
-import android.os.HandlerExecutor;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.PowerManager;
@@ -50,6 +49,7 @@ import android.util.SparseArray;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.modules.utils.HandlerExecutor;
 import com.android.server.SystemService;
 
 import java.io.FileDescriptor;
@@ -306,6 +306,11 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                     mHandler.removeCallbacksAndMessages(null);
                     mAlarmManager.cancel(mPollStateListener);
                     mCanceled = true;
+                    // Delete any logging information if the device is ready to reboot, since an
+                    // unattended reboot should not take place if the checks are cancelled.
+                    if (mReadyToReboot) {
+                        mRebootReadinessLogger.deleteLoggingInformation();
+                    }
                     mReadyToReboot = false;
                 }
             } else {
@@ -509,7 +514,7 @@ public class RebootReadinessManagerService extends IRebootReadinessManager.Stub 
                     }
                 }
             } else {
-                mRebootReadinessLogger.deleteLoggingInformation();
+                mRebootReadinessLogger.writeAfterNotRebootReadyBroadcast();
             }
         }
     }
