@@ -81,6 +81,7 @@ apex {
     systemserverclasspath_fragments: ["com.android.scheduling-systemserverclasspath-fragment"],
     prebuilts: ["current_sdkinfo"],
     manifest: "manifest.json",
+    androidManifest: "AndroidManifest.xml",
     file_contexts: ":com.android.scheduling-file_contexts",
     key: "com.android.scheduling.key",
 }
