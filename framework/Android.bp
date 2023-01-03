@@ -49,3 +49,21 @@ java_api_contribution {
         "//build/orchestrator/apis",
     ],
 }
+
+java_api_contribution {
+    name: "framework-scheduling-system-stubs",
+    api_surface: "system",
+    api_file: "api/system-current.txt",
+    visibility: [
+        "//build/orchestrator/apis",
+    ],
+}
+
+java_api_contribution {
+    name: "framework-scheduling-module-lib-stubs",
+    api_surface: "module-lib",
+    api_file: "api/module-lib-current.txt",
+    visibility: [
+        "//build/orchestrator/apis",
+    ],
+}
