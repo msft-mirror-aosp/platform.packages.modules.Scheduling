@@ -56,6 +56,7 @@ java_library {
     ],
     sdk_version: "system_server_current",
     libs: [
+        "framework-configinfrastructure",
         "framework-scheduling.impl",
         "framework-tethering.stubs.module_lib",
         "unsupportedappusage",
