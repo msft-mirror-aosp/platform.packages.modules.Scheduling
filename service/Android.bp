@@ -50,7 +50,10 @@ java_library {
         ":reboot-stats-parser",
     ],
     min_sdk_version: "31",
-    defaults: ["framework-system-server-module-defaults" ],
+    defaults: [
+        "framework-system-server-module-defaults",
+        "standalone-system-server-module-optimize-defaults",
+    ],
     sdk_version: "system_server_current",
     libs: [
         "framework-configinfrastructure",
