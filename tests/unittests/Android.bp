@@ -25,7 +25,7 @@ android_test {
         "service-scheduling",
         "androidx.test.runner",
         "mockito-target-extended-minus-junit4",
-        "truth-prebuilt",
+        "truth",
     ],
     libs: [
         "android.test.mock",
@@ -40,5 +40,8 @@ android_test {
     compile_multilib: "both",
     target_sdk_version: "31",
     min_sdk_version: "31",
-    test_suites: ["general-tests", "mts-scheduling"],
+    test_suites: [
+        "general-tests",
+        "mts-scheduling",
+    ],
 }
