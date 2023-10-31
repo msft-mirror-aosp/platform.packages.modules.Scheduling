@@ -19,14 +19,12 @@ package com.android.cts.scheduling;
 import static com.google.common.truth.Truth.assertThat;
 
 import static org.junit.Assert.fail;
-import static org.junit.Assume.assumeFalse;
 
 import android.Manifest;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.PackageManager;
 import android.os.HandlerExecutor;
 import android.os.HandlerThread;
 import android.provider.DeviceConfig;
@@ -38,7 +36,6 @@ import androidx.test.InstrumentationRegistry;
 
 import org.junit.After;
 import org.junit.AfterClass;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -109,19 +106,11 @@ public class RebootReadinessManagerTest {
         Thread.sleep(1000);
     }
 
-    @Before
-    public void setUp() {
-        assumeFalse(InstrumentationRegistry.getContext().getPackageManager().hasSystemFeature(
-                PackageManager.FEATURE_WATCH));
-    }
-
     @After
     public void tearDown() {
-        if (mRebootReadinessManager != null) {
-            mRebootReadinessManager.removeRequestRebootReadinessStatusListener(READY_CALLBACK);
-            mRebootReadinessManager.removeRequestRebootReadinessStatusListener(BLOCKING_CALLBACK);
-            mRebootReadinessManager.cancelPendingReboot();
-        }
+        mRebootReadinessManager.removeRequestRebootReadinessStatusListener(READY_CALLBACK);
+        mRebootReadinessManager.removeRequestRebootReadinessStatusListener(BLOCKING_CALLBACK);
+        mRebootReadinessManager.cancelPendingReboot();
     }
 
     @AfterClass
