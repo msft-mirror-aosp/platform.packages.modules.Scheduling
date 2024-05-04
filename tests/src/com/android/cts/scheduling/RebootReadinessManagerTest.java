@@ -25,12 +25,14 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.Handler;
 import android.os.HandlerExecutor;
 import android.os.HandlerThread;
 import android.provider.DeviceConfig;
 import android.scheduling.RebootReadinessManager;
 import android.scheduling.RebootReadinessManager.RebootReadinessStatus;
 import android.scheduling.RebootReadinessManager.RequestRebootReadinessStatusListener;
+import android.util.Log;
 
 import androidx.test.InstrumentationRegistry;
 
@@ -41,6 +43,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -68,6 +71,39 @@ public class RebootReadinessManagerTest {
         }
     }
 
+    /** Utility to ensure that DeviceConfig property is updated */
+    private static class ConfigListener implements DeviceConfig.OnPropertiesChangedListener {
+        private CountDownLatch mLatch;
+        private String mPropertyName;
+        private String mExpectedValue;
+
+        ConfigListener(String propertyName, String expectedValue) {
+            mPropertyName = propertyName;
+            mLatch = new CountDownLatch(1);
+            mExpectedValue = expectedValue;
+        }
+
+        public void awaitPropertyChange(int timeout, TimeUnit unit) throws InterruptedException {
+            Log.i(TAG, "waiting for property" + mPropertyName);
+            if (!mLatch.await(timeout, unit)) {
+                fail("Timed out waiting for properties to get updated");
+            }
+        }
+
+        @Override
+        public void onPropertiesChanged(DeviceConfig.Properties properties) {
+            Log.i(TAG, "Properties changed: " + properties.getKeyset());
+            if (mLatch != null && properties.getKeyset().contains(mPropertyName)) {
+                mLatch.countDown();
+            }
+            if (!Objects.equals(properties.getString(mPropertyName, null), mExpectedValue)) {
+                fail("Property was not set to the expected value: " + mPropertyName + " != "
+                        + mExpectedValue);
+            }
+        }
+    }
+
+    private static final String TAG = "RebootReadinessManagerTest";
     private static final String TEST_CALLBACK_PREFIX = "TESTCOMPONENT";
 
     private static final RequestRebootReadinessStatusListener BLOCKING_CALLBACK =
@@ -81,6 +117,7 @@ public class RebootReadinessManagerTest {
     private static final String PROPERTY_INTERACTIVITY_THRESHOLD_MS = "interactivity_threshold_ms";
     private static final String PROPERTY_DISABLE_APP_ACTIVITY_CHECK = "disable_app_activity_check";
     private static final String PROPERTY_DISABLE_SUBSYSTEMS_CHECK = "disable_subsystems_check";
+    private static final int POLLING_INTERVAL_MS_VALUE = 500;
 
     RebootReadinessManager mRebootReadinessManager =
             (RebootReadinessManager) InstrumentationRegistry.getContext().getSystemService(
@@ -88,22 +125,27 @@ public class RebootReadinessManagerTest {
 
     private static final HandlerThread sThread = new HandlerThread("RebootReadinessManagerTest");
     private static HandlerExecutor sHandlerExecutor;
+    private static Handler sHandler;
 
     @BeforeClass
     public static void setupClass() throws Exception {
         sThread.start();
         sHandlerExecutor = new HandlerExecutor(sThread.getThreadHandler());
+        sHandler = new Handler(sThread.getLooper());
+
         adoptShellPermissions();
+        // TODO(b/333555726): Some properties here are not being set due to not holding the
+        //  correct permission. Evaluate if these properties need to be set and use
+        //  setPropertyAndWait to verify.
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
-                PROPERTY_ACTIVE_POLLING_INTERVAL_MS, "1000", false);
+                PROPERTY_ACTIVE_POLLING_INTERVAL_MS, Integer.toString(POLLING_INTERVAL_MS_VALUE),
+                false);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true", false);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_DISABLE_APP_ACTIVITY_CHECK, "true", false);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_DISABLE_SUBSYSTEMS_CHECK, "true", false);
-        // Small delay to allow DeviceConfig changes to propagate.
-        Thread.sleep(1000);
     }
 
     @After
@@ -222,17 +264,12 @@ public class RebootReadinessManagerTest {
 
     @Test
     public void testDisableInteractivityCheck() throws Exception {
-        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
-                PROPERTY_INTERACTIVITY_THRESHOLD_MS, Long.toString(Long.MAX_VALUE), false);
-        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
-                PROPERTY_DISABLE_INTERACTIVITY_CHECK, "false", false);
-        // Allow a small amount of time for DeviceConfig changes to be noted.
-        Thread.sleep(1000);
+        setPropertyAndWait(PROPERTY_DISABLE_INTERACTIVITY_CHECK, "false");
+
         assertThat(isReadyToReboot()).isFalse();
-        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
-                PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true", false);
-        // Allow a small amount of time for DeviceConfig changes to be noted.
-        Thread.sleep(1000);
+
+        setPropertyAndWait(PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true");
+
         assertThat(isReadyToReboot()).isTrue();
     }
 
@@ -255,9 +292,7 @@ public class RebootReadinessManagerTest {
 
     private boolean isReadyToReboot() throws Exception {
         mRebootReadinessManager.markRebootPending();
-        // Add a small timeout to allow the reboot readiness state to be noted.
-        // TODO(b/161353402): Negate the need for this timeout.
-        Thread.sleep(1000);
+        waitForPolling();
         return mRebootReadinessManager.isReadyToReboot();
     }
 
@@ -271,5 +306,32 @@ public class RebootReadinessManagerTest {
     private static void dropShellPermissions() {
         InstrumentationRegistry
                 .getInstrumentation().getUiAutomation().dropShellPermissionIdentity();
+    }
+
+    private static void setPropertyAndWait(String property, String value)
+            throws InterruptedException {
+        ConfigListener configListener = new ConfigListener(property, value);
+        DeviceConfig.addOnPropertiesChangedListener(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                sHandlerExecutor, configListener);
+        try {
+            DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS, property, value,
+                    false);
+            configListener.awaitPropertyChange(10, TimeUnit.SECONDS);
+        } finally {
+            DeviceConfig.removeOnPropertiesChangedListener(configListener);
+        }
+    }
+
+    private static void waitForPolling() throws InterruptedException {
+        // TODO(b/333555726): Attempt to fully synchronize execution of polling and
+        //  latch::countDown by running them both on the same thread.
+        // Currently, we synchronize latch:countdown with RebootReadinessStatusListeners.
+        CountDownLatch latch = new CountDownLatch(1);
+        // wait 1 ms longer than polling interval.
+        sHandler.postDelayed(latch::countDown, POLLING_INTERVAL_MS_VALUE + 1);
+
+        if (!latch.await(POLLING_INTERVAL_MS_VALUE + 1000, TimeUnit.MILLISECONDS)) {
+            fail("Timed out waiting for main executor to finish");
+        }
     }
 }
