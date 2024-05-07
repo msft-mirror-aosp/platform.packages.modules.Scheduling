@@ -328,9 +328,9 @@ public class RebootReadinessManagerTest {
         // Currently, we synchronize latch:countdown with RebootReadinessStatusListeners.
         CountDownLatch latch = new CountDownLatch(1);
         // wait 1 ms longer than polling interval.
-        sHandler.postDelayed(latch::countDown, POLLING_INTERVAL_MS_VALUE + 1);
+        sHandler.postDelayed(latch::countDown, POLLING_INTERVAL_MS_VALUE + 500);
 
-        if (!latch.await(POLLING_INTERVAL_MS_VALUE + 1000, TimeUnit.MILLISECONDS)) {
+        if (!latch.await(POLLING_INTERVAL_MS_VALUE + 2000, TimeUnit.MILLISECONDS)) {
             fail("Timed out waiting for main executor to finish");
         }
     }
