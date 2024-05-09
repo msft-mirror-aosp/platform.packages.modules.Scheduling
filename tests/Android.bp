@@ -27,6 +27,7 @@ android_test {
     ],
     test_suites: [
         "general-tests",
+        "cts",
         "mts-scheduling",
         "mcts-scheduling",
     ],
