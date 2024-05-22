@@ -84,7 +84,7 @@ public class RebootReadinessManagerTest {
         }
 
         public void awaitPropertyChange(int timeout, TimeUnit unit) throws InterruptedException {
-            Log.i(TAG, "waiting for property" + mPropertyName);
+            Log.i(TAG, "Waiting for property " + mPropertyName);
             if (!mLatch.await(timeout, unit)) {
                 fail("Timed out waiting for properties to get updated");
             }
@@ -92,7 +92,7 @@ public class RebootReadinessManagerTest {
 
         @Override
         public void onPropertiesChanged(DeviceConfig.Properties properties) {
-            Log.i(TAG, "Properties changed: " + properties.getKeyset());
+            Log.d(TAG, "Properties changed: " + properties.getKeyset());
             if (mLatch != null && properties.getKeyset().contains(mPropertyName)) {
                 mLatch.countDown();
             }
@@ -132,20 +132,13 @@ public class RebootReadinessManagerTest {
         sThread.start();
         sHandlerExecutor = new HandlerExecutor(sThread.getThreadHandler());
         sHandler = new Handler(sThread.getLooper());
-
         adoptShellPermissions();
-        // TODO(b/333555726): Some properties here are not being set due to not holding the
-        //  correct permission. Evaluate if these properties need to be set and use
-        //  setPropertyAndWait to verify.
-        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
-                PROPERTY_ACTIVE_POLLING_INTERVAL_MS, Integer.toString(POLLING_INTERVAL_MS_VALUE),
-                false);
-        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
-                PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true", false);
-        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
-                PROPERTY_DISABLE_APP_ACTIVITY_CHECK, "true", false);
-        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
-                PROPERTY_DISABLE_SUBSYSTEMS_CHECK, "true", false);
+        setPropertyAndWait(PROPERTY_DISABLE_INTERACTIVITY_CHECK, "true");
+        setPropertyAndWait(PROPERTY_DISABLE_APP_ACTIVITY_CHECK, "true");
+        setPropertyAndWait(PROPERTY_DISABLE_SUBSYSTEMS_CHECK, "true");
+        setPropertyAndWait(PROPERTY_ACTIVE_POLLING_INTERVAL_MS,
+                Integer.toString(POLLING_INTERVAL_MS_VALUE));
+
     }
 
     @After
@@ -327,10 +320,10 @@ public class RebootReadinessManagerTest {
         //  latch::countDown by running them both on the same thread.
         // Currently, we synchronize latch:countdown with RebootReadinessStatusListeners.
         CountDownLatch latch = new CountDownLatch(1);
-        // wait 1 ms longer than polling interval.
-        sHandler.postDelayed(latch::countDown, POLLING_INTERVAL_MS_VALUE + 1);
+        // wait 500 ms longer than polling interval.
+        sHandler.postDelayed(latch::countDown, POLLING_INTERVAL_MS_VALUE + 500);
 
-        if (!latch.await(POLLING_INTERVAL_MS_VALUE + 1000, TimeUnit.MILLISECONDS)) {
+        if (!latch.await(POLLING_INTERVAL_MS_VALUE + 2000, TimeUnit.MILLISECONDS)) {
             fail("Timed out waiting for main executor to finish");
         }
     }
