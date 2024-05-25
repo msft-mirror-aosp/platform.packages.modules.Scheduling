@@ -303,6 +303,13 @@ public class RebootReadinessManagerTest {
 
     private static void setPropertyAndWait(String property, String value)
             throws InterruptedException {
+        // Since the OnPropertiesChangedListener only detects a change in property, first check if
+        // property is already the desired value.
+        if (DeviceConfig.getString(DeviceConfig.NAMESPACE_REBOOT_READINESS,
+                property,  /* defaultValue= */ "").equals(value)) {
+            return;
+        }
+
         ConfigListener configListener = new ConfigListener(property, value);
         DeviceConfig.addOnPropertiesChangedListener(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 sHandlerExecutor, configListener);
