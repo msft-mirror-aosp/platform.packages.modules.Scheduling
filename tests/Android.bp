@@ -21,7 +21,7 @@ android_test {
     manifest: "AndroidManifest.xml",
     srcs: ["src/**/*.java"],
     static_libs: ["androidx.test.rules", "truth-prebuilt", "androidx.test.core"],
-    test_suites: ["general-tests", "cts", "mts-scheduling"],
+    test_suites: ["general-tests", "cts", "mts-scheduling", "mcts-scheduling"],
     target_sdk_version: "31",
     min_sdk_version: "31",
 }
