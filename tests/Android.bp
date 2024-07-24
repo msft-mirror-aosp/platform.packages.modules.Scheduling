@@ -29,6 +29,7 @@ android_test {
         "general-tests",
         "cts",
         "mts-scheduling",
+        "mcts-scheduling",
     ],
     target_sdk_version: "31",
     min_sdk_version: "31",
