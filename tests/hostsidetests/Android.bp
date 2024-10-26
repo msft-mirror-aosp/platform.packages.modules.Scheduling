@@ -23,7 +23,7 @@ java_test_host {
         "tradefed",
         "truth",
     ],
-    data: [
+    device_common_data: [
         ":RebootReadinessTestApp",
     ],
     test_suites: ["general-tests"],
