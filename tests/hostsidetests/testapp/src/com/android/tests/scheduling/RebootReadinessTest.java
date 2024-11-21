@@ -70,7 +70,8 @@ public class RebootReadinessTest {
     // Set DeviceConfig properties so the device is reboot ready.
     private void setTestConfigurations() {
         InstrumentationRegistry.getInstrumentation().getUiAutomation().adoptShellPermissionIdentity(
-                Manifest.permission.WRITE_DEVICE_CONFIG);
+                Manifest.permission.WRITE_DEVICE_CONFIG,
+                Manifest.permission.WRITE_ALLOWLISTED_DEVICE_CONFIG);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
                 PROPERTY_ACTIVE_POLLING_INTERVAL_MS, "1000", false);
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_REBOOT_READINESS,
