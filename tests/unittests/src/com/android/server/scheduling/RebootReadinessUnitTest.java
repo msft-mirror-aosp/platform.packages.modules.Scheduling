@@ -169,6 +169,7 @@ public class RebootReadinessUnitTest {
         when(mMockContext.getPackageManager()).thenReturn(mPackageManager);
         InstrumentationRegistry.getInstrumentation().getUiAutomation()
                 .adoptShellPermissionIdentity(Manifest.permission.WRITE_DEVICE_CONFIG,
+                        Manifest.permission.WRITE_ALLOWLISTED_DEVICE_CONFIG,
                         Manifest.permission.READ_DEVICE_CONFIG,
                         Manifest.permission.SCHEDULE_EXACT_ALARM,
                         Manifest.permission.ACCESS_NETWORK_STATE);
