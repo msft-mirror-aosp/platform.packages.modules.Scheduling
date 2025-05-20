@@ -84,6 +84,7 @@ apex {
     androidManifest: "AndroidManifest.xml",
     file_contexts: ":com.android.scheduling-file_contexts",
     key: "com.android.scheduling.key",
+    certificate: ":com.android.scheduling.certificate",
 }
 
 sdk {
