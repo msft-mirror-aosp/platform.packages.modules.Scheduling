@@ -117,7 +117,7 @@ public final class RebootReadinessManager {
     public static final String SUBSYSTEM_NAME_KEY = "SUBSYSTEM_NAME";
 
 
-    /** {@hide} */
+    /** @hide */
     public RebootReadinessManager(Context context, IRebootReadinessManager binder) {
         mContext = context;
         mService = binder;
